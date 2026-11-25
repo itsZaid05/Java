@@ -100,7 +100,7 @@ public class MessageListView extends StackPane {
                     messageBox.getChildren().add(sysPane);
                 }
                 case MessageItem m -> {
-                    MessageBubble bubble = new MessageBubble(m, viewModel.type(), viewModel::retrySend);
+                    MessageBubble bubble = new MessageBubble(m, viewModel.type(), viewModel::retrySend, viewModel::saveAttachment);
                     messageBox.getChildren().add(bubble);
                 }
             }

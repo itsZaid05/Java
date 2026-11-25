@@ -30,12 +30,10 @@ public final class SessionRegistry {
 
     public int onlineCount() { return online.size(); }
 
-    /** Queues a frame for one user. Returns false if the user is not online. */
+    /** Reports whether the recipient's active connection accepted the frame for sending. */
     public boolean sendTo(String user, String frame) {
         ClientHandler h = online.get(user);
-        if (h == null) return false;
-        h.send(frame);
-        return true;
+        return h != null && h.send(frame);
     }
 
     /** Queues a frame for every online user except exceptUser (may be null). */

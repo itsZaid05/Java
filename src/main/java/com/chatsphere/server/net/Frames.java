@@ -6,6 +6,7 @@ import com.chatsphere.common.protocol.ErrorCode;
 import com.chatsphere.common.protocol.Protocol;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 
 /**
@@ -27,6 +28,10 @@ public final class Frames {
 
     public static String sent(String reqId, long messageId, long timestamp) {
         return Codec.encode(Protocol.SENT, reqId, Codec.str(messageId), Codec.str(timestamp));
+    }
+
+    public static String fileData(String reqId, byte[] data) {
+        return Codec.encode(Protocol.FILE_DATA, reqId, Base64.getEncoder().encodeToString(data));
     }
 
     public static String roomListResult(String reqId, String scope, List<RoomSummary> rooms) {
@@ -86,6 +91,13 @@ public final class Frames {
             f.add(m.status().name());
             f.add(m.text());
         }
+        // Optional trailer: attachment message IDs and their byte lengths.
+        for (MessageRecord m : page.messages()) {
+            if (m.attachmentSize() != null) {
+                f.add(Codec.str(m.id()));
+                f.add(Codec.str(m.attachmentSize()));
+            }
+        }
         return Codec.encode(Protocol.HISTORY_RESULT, f);
     }
 
@@ -106,11 +118,18 @@ public final class Frames {
 
     // ---------------------------------------------------------------- pushes
     public static String msgPush(String room, MessageRecord m) {
-        return Codec.encode(Protocol.MSG_PUSH, room, Codec.str(m.id()), m.sender(), Codec.str(m.timestamp()), m.text());
+        return messagePush(Protocol.MSG_PUSH, List.of(room, Codec.str(m.id()), m.sender(), Codec.str(m.timestamp()), m.text()), m);
     }
 
     public static String pmPush(MessageRecord m) {
-        return Codec.encode(Protocol.PM_PUSH, Codec.str(m.id()), m.sender(), Codec.str(m.timestamp()), m.text());
+        return messagePush(Protocol.PM_PUSH, List.of(Codec.str(m.id()), m.sender(), Codec.str(m.timestamp()), m.text()), m);
+    }
+
+    private static String messagePush(String command, List<String> fields, MessageRecord message) {
+        if (message.attachmentSize() == null) return Codec.encode(command, fields);
+        List<String> withSize = new ArrayList<>(fields);
+        withSize.add(Codec.str(message.attachmentSize()));
+        return Codec.encode(command, withSize);
     }
 
     public static String userStatus(String username, boolean online) {

@@ -26,6 +26,7 @@ public class InMemoryChatService implements ChatService {
     private final Map<String, String> users = new TreeMap<>();
     private final Map<String, Room> rooms = new TreeMap<>();
     private final List<Msg> msgs = new ArrayList<>();
+    private final Map<Long, byte[]> attachments = new HashMap<>();
     private long nextId = 1;
 
     // ---------- helpers ----------
@@ -46,7 +47,9 @@ public class InMemoryChatService implements ChatService {
         return m;
     }
     private MessageRecord rec(Msg m) {
-        return new MessageRecord(m.id, m.sender, m.ts, m.type == TargetType.ROOM ? DeliveryStatus.SENT : m.status, m.text);
+        byte[] data = attachments.get(m.id);
+        return new MessageRecord(m.id, m.sender, m.ts,
+                m.type == TargetType.ROOM ? DeliveryStatus.SENT : m.status, m.text, data == null ? null : data.length);
     }
     private boolean between(Msg m, String a, String b) {
         return m.type == TargetType.PRIVATE
@@ -171,6 +174,32 @@ public class InMemoryChatService implements ChatService {
         msgs.add(m);
         return rec(m);
     }
+    @Override
+    public synchronized MessageRecord saveAttachment(String sender, TargetType type, String target, String filename,
+                                                     byte[] data) {
+        Validation.requireAttachmentName(filename);
+        Validation.requireAttachmentSize(data.length);
+        MessageRecord message = type == TargetType.ROOM
+                ? saveRoomMessage(sender, target, filename) : savePrivateMessage(sender, target, filename);
+        attachments.put(message.id(), data.clone());
+        return new MessageRecord(message.id(), sender, message.timestamp(), message.status(), filename, data.length);
+    }
+
+    @Override
+    public synchronized byte[] attachmentChunk(String requester, long messageId, int offset) {
+        byte[] data = attachments.get(messageId);
+        if (data != null && offset >= 0 && offset <= data.length) {
+            for (Msg m : msgs) {
+                if (m.id != messageId) continue;
+                boolean allowed = m.type == TargetType.ROOM ? rooms.get(m.room).members.contains(requester)
+                        : m.sender.equals(requester) || m.recipient.equals(requester);
+                if (allowed) return Arrays.copyOfRange(data, offset, Math.min(offset + Limits.ATTACHMENT_CHUNK_BYTES, data.length));
+                break;
+            }
+        }
+        throw new ChatException(ErrorCode.ATTACHMENT_UNAVAILABLE);
+    }
+
     @Override public synchronized void markDelivered(List<Long> ids) {
         if (ids == null || ids.isEmpty()) return;
         Set<Long> set = new HashSet<>(ids);

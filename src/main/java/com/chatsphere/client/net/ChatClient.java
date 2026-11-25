@@ -1,6 +1,10 @@
 package com.chatsphere.client.net;
 
 import com.chatsphere.common.model.*;
+import com.chatsphere.common.protocol.ChatException;
+import com.chatsphere.common.protocol.ErrorCode;
+
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
@@ -41,6 +45,18 @@ public interface ChatClient {
     CompletableFuture<HistoryPage> loadHistoryAround(TargetType type, String target, long messageId);
     CompletableFuture<SentAck> sendRoomMessage(String room, String text);
     CompletableFuture<SentAck> sendPrivateMessage(String user, String text);
+    record AttachmentAck(SentAck message, int size) {}
+
+    default boolean supportsAttachments() { return false; }
+
+    default CompletableFuture<AttachmentAck> sendAttachment(TargetType type, String target, Path file) {
+        return CompletableFuture.failedFuture(new ChatException(ErrorCode.UNKNOWN_COMMAND));
+    }
+
+    default CompletableFuture<Void> saveAttachment(long messageId, int size, Path destination) {
+        return CompletableFuture.failedFuture(new ChatException(ErrorCode.UNKNOWN_COMMAND));
+    }
+
     /** Fire and forget. The caller throttles (max 1 per 2 seconds per conversation). */
     void sendTyping(TargetType type, String target);
     CompletableFuture<Void> markRead(TargetType type, String target, long upToMessageId);

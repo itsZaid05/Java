@@ -12,6 +12,9 @@ public final class Protocol {
     public static final String HISTORY = "HISTORY", HISTORY_AROUND = "HISTORY_AROUND";
     public static final String MSG = "MSG", PM = "PM", TYPING = "TYPING", MARK_READ = "MARK_READ", SEARCH = "SEARCH";
 
+    public static final String FILE_START = "FILE_START", FILE_CHUNK = "FILE_CHUNK",
+            FILE_SEND = "FILE_SEND", FILE_GET = "FILE_GET", FILE_DATA = "FILE_DATA";
+
     // ---- server -> client: replies (field 1 is the reqId of the request) ----
     public static final String OK = "OK", ERROR = "ERROR", LOGIN_OK = "LOGIN_OK", PONG = "PONG", SENT = "SENT";
     public static final String ROOM_LIST_RESULT = "ROOM_LIST_RESULT", ROOM_MEMBERS_RESULT = "ROOM_MEMBERS_RESULT",

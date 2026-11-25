@@ -10,11 +10,13 @@ import javafx.collections.ObservableList;
 import javafx.collections.ObservableSet;
 import javafx.util.Duration;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -128,7 +130,7 @@ public class ConversationViewModel {
             }
 
             boolean isOwn = r.sender().equals(currentUser);
-            MessageItem item = new MessageItem(r.id(), null, r.sender(), r.text(), r.timestamp(), r.status(), isOwn);
+            MessageItem item = new MessageItem(r.id(), null, r.sender(), r.text(), r.timestamp(), r.status(), isOwn, r.attachmentSize());
             msgItems.add(item);
             items.add(item);
         }
@@ -152,7 +154,7 @@ public class ConversationViewModel {
             List<MessageRecord> combined = new ArrayList<>(earlier);
             for (ChatListItem it : items) {
                 if (it instanceof MessageItem m && m.id() != null) {
-                    combined.add(new MessageRecord(m.id(), m.sender(), m.timestamp(), m.status(), m.text()));
+                    combined.add(new MessageRecord(m.id(), m.sender(), m.timestamp(), m.status(), m.text(), m.attachmentSize()));
                 }
             }
             combined.sort(Comparator.comparingLong(MessageRecord::id));
@@ -199,6 +201,20 @@ public class ConversationViewModel {
         });
     }
 
+    public boolean supportsAttachments() { return client.supportsAttachments(); }
+
+    public CompletableFuture<Void> sendAttachment(Path file) {
+        return client.sendAttachment(type, target, file).thenAccept(result -> {
+            SentAck ack = result.message();
+            handleIncomingMessage(new MessageRecord(ack.id(), currentUser, ack.timestamp(), DeliveryStatus.SENT,
+                    file.getFileName().toString(), result.size()));
+        });
+    }
+
+    public CompletableFuture<Void> saveAttachment(MessageItem message, Path destination) {
+        return client.saveAttachment(message.id(), message.attachmentSize(), destination);
+    }
+
     /** Retry a failed message. */
     public void retrySend(MessageItem item) {
         if (item.status() != DeliveryStatus.FAILED) return;
@@ -237,7 +253,7 @@ public class ConversationViewModel {
         }
 
         boolean isOwn = msg.sender().equals(currentUser);
-        MessageItem item = new MessageItem(msg.id(), null, msg.sender(), msg.text(), msg.timestamp(), msg.status(), isOwn);
+        MessageItem item = new MessageItem(msg.id(), null, msg.sender(), msg.text(), msg.timestamp(), msg.status(), isOwn, msg.attachmentSize());
         items.add(item);
         if (msg.id() > newestLoadedId) {
             newestLoadedId = msg.id();

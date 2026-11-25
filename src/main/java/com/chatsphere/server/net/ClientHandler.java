@@ -4,6 +4,7 @@ import com.chatsphere.common.model.*;
 import com.chatsphere.common.protocol.*;
 import com.chatsphere.server.service.ChatService;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -11,6 +12,7 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -37,7 +39,10 @@ public final class ClientHandler implements Runnable {
             Protocol.REGISTER, Protocol.LOGIN, Protocol.LOGOUT, Protocol.PING,
             Protocol.ROOM_LIST, Protocol.ROOM_CREATE, Protocol.ROOM_JOIN, Protocol.ROOM_LEAVE,
             Protocol.ROOM_MEMBERS, Protocol.USER_LIST, Protocol.HISTORY, Protocol.HISTORY_AROUND,
-            Protocol.MSG, Protocol.PM, Protocol.TYPING, Protocol.MARK_READ, Protocol.SEARCH);
+            Protocol.MSG, Protocol.PM, Protocol.TYPING, Protocol.MARK_READ, Protocol.SEARCH,
+            Protocol.FILE_START, Protocol.FILE_CHUNK, Protocol.FILE_SEND, Protocol.FILE_GET);
+
+    private record Upload(TargetType type, String target, String filename, int size, ByteArrayOutputStream data) {}
 
     private final Socket socket;
     private final ChatService service;
@@ -46,6 +51,7 @@ public final class ClientHandler implements Runnable {
     private final LinkedBlockingQueue<String> outbound = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
     private final AtomicBoolean cleaned = new AtomicBoolean();
 
+    private Upload upload;                   // only accessed by this handler's reader thread
     private volatile String user;            // null until LOGIN succeeds
     private volatile boolean closing;        // no more input is processed, no more frames are queued
     private volatile boolean graceful;       // CLOSE sentinel was queued: let the writer flush before closing
@@ -162,13 +168,13 @@ public final class ClientHandler implements Runnable {
     }
 
     // =================================================================== outbound (used by other threads too)
-    /** Queues a frame for this client. NEVER blocks: if the client is too slow (queue full) we disconnect it. */
-    void send(String frame) {
-        if (closing) return;
-        if (!outbound.offer(frame)) {
-            LOG.warning("Outbound queue full, disconnecting slow client " + describe());
-            forceClose();
-        }
+    /** Queues a frame without blocking. Disconnects slow clients and reports whether the frame was queued. */
+    boolean send(String frame) {
+        if (closing) return false;
+        if (outbound.offer(frame)) return true;
+        LOG.warning("Outbound queue full, disconnecting slow client " + describe());
+        forceClose();
+        return false;
     }
 
     /** Close after everything already queued has been written. */
@@ -262,6 +268,10 @@ public final class ClientHandler implements Runnable {
             case Protocol.HISTORY_AROUND -> historyAround(reqId, f);
             case Protocol.MSG -> roomMessage(reqId, f);
             case Protocol.PM -> privateMessage(reqId, f);
+            case Protocol.FILE_START -> startUpload(reqId, f);
+            case Protocol.FILE_CHUNK -> appendUpload(reqId, f);
+            case Protocol.FILE_SEND -> finishUpload(reqId, f);
+            case Protocol.FILE_GET -> downloadChunk(reqId, f);
             case Protocol.TYPING -> typing(f);
             case Protocol.MARK_READ -> markRead(reqId, f);
             case Protocol.SEARCH -> search(reqId, f);
@@ -275,15 +285,18 @@ public final class ClientHandler implements Runnable {
         String name = f.get(2);
         service.verifyLogin(name, f.get(3));                       // throws BAD_CREDENTIALS
         user = name;
-        ClientHandler old = registry.register(name, this);         // atomic: returns the connection we replace
-        if (old != null && old != this) old.replaceSession();
-        send(Frames.loginOk(reqId, name));
-        registry.broadcast(Frames.userStatus(name, true), name);
-        LOG.info("User online: " + name);
-        Map<String, List<Long>> delivered = service.markAllDeliveredFor(name);
-        for (Map.Entry<String, List<Long>> e : delivered.entrySet()) {
-            registry.sendTo(e.getKey(), Frames.ackPush(DeliveryStatus.DELIVERED, name, e.getValue()));
+        // Serialize offline catch-up with private sends and read receipts.
+        synchronized (service) {
+            ClientHandler old = registry.register(name, this);
+            if (old != null && old != this) old.replaceSession();
+            send(Frames.loginOk(reqId, name));
+            registry.broadcast(Frames.userStatus(name, true), name);
+            Map<String, List<Long>> delivered = service.markAllDeliveredFor(name);
+            for (Map.Entry<String, List<Long>> e : delivered.entrySet()) {
+                registry.sendTo(e.getKey(), Frames.ackPush(DeliveryStatus.DELIVERED, name, e.getValue()));
+            }
         }
+        LOG.info("User online: " + name);
     }
 
     // =================================================================== rooms
@@ -379,8 +392,7 @@ public final class ClientHandler implements Runnable {
         Codec.requireSize(f, 4);
         String room = f.get(2);
         MessageRecord rec = service.saveRoomMessage(user, room, f.get(3));
-        send(Frames.sent(reqId, rec.id(), rec.timestamp()));
-        pushToOnline(service.roomMembersForFanout(room), user, Frames.msgPush(room, rec));
+        deliverRoomMessage(reqId, room, rec);
     }
 
     /**
@@ -391,12 +403,76 @@ public final class ClientHandler implements Runnable {
     private void privateMessage(String reqId, List<String> f) {
         Codec.requireSize(f, 4);
         String recipient = f.get(2);
-        MessageRecord rec = service.savePrivateMessage(user, recipient, f.get(3));
+        synchronized (service) {
+            deliverPrivateMessage(reqId, recipient, service.savePrivateMessage(user, recipient, f.get(3)));
+        }
+    }
+
+    private void deliverRoomMessage(String reqId, String room, MessageRecord message) {
+        send(Frames.sent(reqId, message.id(), message.timestamp()));
+        pushToOnline(service.roomMembersForFanout(room), user, Frames.msgPush(room, message));
+    }
+
+    /** Caller holds the service lock so login catch-up and read receipts cannot overtake delivery. */
+    private void deliverPrivateMessage(String reqId, String recipient, MessageRecord rec) {
         send(Frames.sent(reqId, rec.id(), rec.timestamp()));
-        if (registry.sendTo(recipient, Frames.pmPush(rec))) {          // false = recipient not online: stays SENT
+        if (registry.sendTo(recipient, Frames.pmPush(rec))) {          // unavailable recipient: stays SENT
             service.markDelivered(List.of(rec.id()));
             send(Frames.ackPush(DeliveryStatus.DELIVERED, recipient, List.of(rec.id())));
         }
+    }
+
+    private void startUpload(String reqId, List<String> fields) {
+        Codec.requireSize(fields, 6);
+        TargetType type = Codec.toEnum(TargetType.class, fields.get(2));
+        String filename = fields.get(4);
+        int size = Codec.toInt(fields.get(5));
+        Validation.requireAttachmentName(filename);
+        Validation.requireAttachmentSize(size);
+        upload = new Upload(type, fields.get(3), filename, size, new ByteArrayOutputStream());
+        send(Frames.ok(reqId));
+    }
+
+    private void appendUpload(String reqId, List<String> fields) {
+        Codec.requireSize(fields, 3);
+        Upload current = upload;
+        if (current == null) throw new ChatException(ErrorCode.BAD_REQUEST);
+        byte[] chunk;
+        try {
+            chunk = Base64.getDecoder().decode(fields.get(2));
+        } catch (IllegalArgumentException e) {
+            upload = null;
+            throw new ChatException(ErrorCode.BAD_REQUEST);
+        }
+        if (chunk.length == 0 || chunk.length > Limits.ATTACHMENT_CHUNK_BYTES
+                || chunk.length > current.size() - current.data().size()) {
+            upload = null;
+            throw new ChatException(ErrorCode.BAD_REQUEST);
+        }
+        current.data().writeBytes(chunk);
+        send(Frames.ok(reqId));
+    }
+
+    private void finishUpload(String reqId, List<String> fields) {
+        Codec.requireSize(fields, 2);
+        Upload current = upload;
+        upload = null;
+        if (current == null || current.data().size() != current.size()) {
+            throw new ChatException(ErrorCode.BAD_REQUEST);
+        }
+        byte[] data = current.data().toByteArray();
+        synchronized (service) {
+            MessageRecord message = service.saveAttachment(user, current.type(), current.target(), current.filename(), data);
+            if (current.type() == TargetType.ROOM) deliverRoomMessage(reqId, current.target(), message);
+            else deliverPrivateMessage(reqId, current.target(), message);
+        }
+    }
+
+    private void downloadChunk(String reqId, List<String> fields) {
+        Codec.requireSize(fields, 4);
+        long id = Codec.toLong(fields.get(2));
+        int offset = Codec.toInt(fields.get(3));
+        send(Frames.fileData(reqId, service.attachmentChunk(user, id, offset)));
     }
 
     /** Never answers and never errors (any problem is ignored silently). */
@@ -422,9 +498,11 @@ public final class ClientHandler implements Runnable {
         String target = f.get(3);
         long upTo = Codec.toLong(f.get(4));
         if (type == TargetType.PRIVATE) {
-            List<Long> ids = service.markPrivateRead(user, target, upTo);
-            send(Frames.ok(reqId));
-            if (!ids.isEmpty()) registry.sendTo(target, Frames.ackPush(DeliveryStatus.READ, user, ids));
+            synchronized (service) {
+                List<Long> ids = service.markPrivateRead(user, target, upTo);
+                send(Frames.ok(reqId));
+                if (!ids.isEmpty()) registry.sendTo(target, Frames.ackPush(DeliveryStatus.READ, user, ids));
+            }
         } else {
             service.markRoomRead(user, target, upTo);
             send(Frames.ok(reqId));

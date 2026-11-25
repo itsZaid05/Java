@@ -22,6 +22,7 @@ public sealed interface ChatListItem {
         private final String tempId;
         private final String sender;
         private final String text;
+        private final Integer attachmentSize;
         private long timestamp;
         private final ObjectProperty<DeliveryStatus> status;
         private final boolean own;
@@ -30,10 +31,16 @@ public sealed interface ChatListItem {
 
         public MessageItem(Long id, String tempId, String sender, String text, long timestamp,
                            DeliveryStatus status, boolean own) {
+            this(id, tempId, sender, text, timestamp, status, own, null);
+        }
+
+        public MessageItem(Long id, String tempId, String sender, String text, long timestamp,
+                           DeliveryStatus status, boolean own, Integer attachmentSize) {
             this.id = id;
             this.tempId = tempId;
             this.sender = sender;
             this.text = text;
+            this.attachmentSize = attachmentSize;
             this.timestamp = timestamp;
             this.status = new SimpleObjectProperty<>(status);
             this.own = own;
@@ -46,6 +53,7 @@ public sealed interface ChatListItem {
         public String tempId() { return tempId; }
         public String sender() { return sender; }
         public String text() { return text; }
+        public Integer attachmentSize() { return attachmentSize; }
         public long timestamp() { return timestamp; }
         public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
         public DeliveryStatus status() { return status.get(); }

@@ -1,18 +1,26 @@
 package com.chatsphere.client.view.workspace;
 
+import com.chatsphere.client.AppContext;
+import com.chatsphere.client.ErrorMessages;
 import com.chatsphere.client.component.Avatar;
+import com.chatsphere.client.component.Severity;
 import com.chatsphere.client.view.workspace.state.ChatListItem.MessageItem;
 import com.chatsphere.common.model.DeliveryStatus;
 import com.chatsphere.common.model.TargetType;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
 import org.kordamp.ikonli.javafx.FontIcon;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 /**
@@ -26,10 +34,14 @@ public class MessageBubble extends HBox {
     private final TargetType targetType;
     private final Consumer<MessageItem> onRetry;
 
-    public MessageBubble(MessageItem item, TargetType targetType, Consumer<MessageItem> onRetry) {
+    private final BiFunction<MessageItem, Path, CompletableFuture<Void>> saveAttachment;
+
+    public MessageBubble(MessageItem item, TargetType targetType, Consumer<MessageItem> onRetry,
+                         BiFunction<MessageItem, Path, CompletableFuture<Void>> saveAttachment) {
         this.item = item;
         this.targetType = targetType;
         this.onRetry = onRetry;
+        this.saveAttachment = saveAttachment;
 
         getStyleClass().add("message-bubble-row");
         if (item.isOwn()) {
@@ -79,6 +91,11 @@ public class MessageBubble extends HBox {
         textLabel.setWrapText(true);
         textLabel.setMaxWidth(520);
         bubbleBox.getChildren().add(textLabel);
+        if (item.attachmentSize() != null) {
+            Hyperlink download = new Hyperlink("Save attachment…");
+            download.setOnAction(e -> chooseDestination(download));
+            bubbleBox.getChildren().add(download);
+        }
 
         // Meta row: time + tick
         HBox metaRow = new HBox();
@@ -115,5 +132,21 @@ public class MessageBubble extends HBox {
         bubbleBox.getChildren().add(failedBox);
 
         getChildren().add(bubbleBox);
+    }
+
+    private void chooseDestination(Hyperlink link) {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Save attachment");
+        chooser.setInitialFileName(item.text());
+        var destination = chooser.showSaveDialog(getScene().getWindow());
+        if (destination == null) return;
+        link.setDisable(true);
+        link.setText("Saving…");
+        saveAttachment.apply(item, destination.toPath()).whenComplete((ignored, error) -> {
+            link.setDisable(false);
+            link.setText("Save attachment…");
+            if (error == null) AppContext.get().toast("Attachment saved.", Severity.SUCCESS);
+            else AppContext.get().toast(ErrorMessages.of(error), Severity.ERROR);
+        });
     }
 }

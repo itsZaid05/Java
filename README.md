@@ -2,7 +2,7 @@
 
 [![Java](https://img.shields.io/badge/Java-21%2B-ED8B00?style=flat&logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/21/)
 [![JavaFX](https://img.shields.io/badge/JavaFX-21-blue?style=flat)](https://openjfx.io/)
-[![Build & Tests](https://img.shields.io/badge/Tests-363%20Passing-brightgreen?style=flat)](#testing)
+[![Build & Tests](https://img.shields.io/badge/Tests-368%20Passing-brightgreen?style=flat)](#testing)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
 
 **ChatSphere** is a high-performance desktop chat platform written in **Java 21**. It features a modern **JavaFX** client, a concurrent virtual-thread socket server, and dual-backend persistence (SQLite JDBC and In-Memory specification).
@@ -19,6 +19,7 @@
   - [Run the Server](#run-the-server)
   - [Run the Client](#run-the-client)
   - [Run Standalone Client (Mock Mode)](#run-standalone-client-mock-mode)
+  - [Classroom demo over LAN](#classroom-demo-over-lan)
 - [Testing](#testing)
 - [Project Structure](#project-structure)
 - [Protocol Overview](#protocol-overview)
@@ -31,6 +32,7 @@
 - **Modern Workspace Layout:** Multi-column interface featuring responsive channel/user sidebar, conversation stream, message composer, and contextual details/search inspector.
 - **Optimistic UI:** Messages appear instantly upon sending with optimistic state transitions (`PENDING` ➔ `SENT` ➔ `DELIVERED` ➔ `READ`).
 - **Smart Stream Grouping:** Bubbles group dynamically by sender within temporal windows (5-minute proximity), with automatic day separators and unread dividers.
+- **LAN file and image sharing:** Attach a file of up to 5 MiB to a room or direct message. Recipients can save the original bytes from chat history. Filenames are searchable.
 - **Real-Time Indicators:** Ephemeral typing strips and live presence indicators (online/offline tracking).
 - **History & Scoped Search:** Paginated message retrieval and full-text keyword search with substring marking, sender/date filters, and conversation scoping.
 - **Adaptive Design System:** Light and Dark themes backed by custom CSS tokens, typography scale, and avatar color hashing.
@@ -38,7 +40,7 @@
 ### Server & Backend
 - **High-Concurrency Socket Engine:** Virtual-thread-per-connection server architecture with outbound queue management, non-blocking broadcasts, and graceful slow-client disconnect handling.
 - **Dual Persistence Contract:**
-  - **SQLite (Production):** ACID-compliant transactional persistence using SQLite JDBC and prepared statements.
+  - **SQLite:** Transactional persistence using SQLite JDBC and prepared statements in `UserDAO`, `RoomDAO`, and `MessageDAO`. Messages and their attachment data are stored in the same transaction.
   - **In-Memory (Testing & Dev):** Concurrent zero-dependency in-memory service mirroring the exact SQLite specification.
 - **Security:** PBKDF2 password hashing with constant-time verification to prevent timing attacks.
 
@@ -114,14 +116,26 @@ mvn javafx:run
 
 To explore or test the UI without starting the server, run with the `--fake` flag. This uses `FakeChatClient` pre-loaded with simulated bot interactions, rooms (`#general`, `#random`), and mock direct chats:
 ```bash
-mvn javafx:run -Dexec.args="--fake"
+mvn javafx:run -Djavafx.args="--fake"
 ```
 > **Pre-seeded credentials:** `demo` / `password1`
 
 ### 5. Component Gallery & Dev Harness
 ```bash
-mvn javafx:run -Dexec.args="--gallery"
+mvn javafx:run -Djavafx.args="--gallery"
 ```
+
+### Classroom demo over LAN
+
+Use Java 21 and Maven 3.9+ on each computer. Run the server and client commands once while online to cache Maven dependencies. After that, pass `-o` to Maven to use the local cache. Chat and file transfers run entirely over the local network.
+
+1. Connect both computers to the same Wi-Fi or Ethernet network. For a one-computer demo, open two client windows and use `localhost`.
+2. On the server computer, start the SQLite server with `mvn -o compile exec:java`. Its default TCP port is `5050`.
+3. On each client computer, run `mvn -o javafx:run`. On the sign-in screen, open **Connection settings** and enter the server's local IPv4 address and port. Select **Connect** and register a different account in each client. If a second computer cannot connect, check that the server firewall allows TCP port `5050` on the private network and that the Wi-Fi permits communication between devices.
+4. Create a room from the first client and join it using **Browse** from the second. Send a chat message, then use the paperclip to send a small PNG or PDF. Select **Save attachment…** on the receiving client.
+5. Sign out from the second client. Send it a direct message with an attachment, then sign back in there to show the unread count, saved history, and delivery and read ticks on the sender's screen.
+
+Use a trusted private network. This demo uses plain TCP, so credentials and chat traffic are visible to anyone who can inspect network traffic. Keep the server off the public Internet. Run the same branch on the server and both clients for attachment support.
 
 ---
 
@@ -136,7 +150,7 @@ mvn test
 ### Test Coverage Highlights:
 - **`AbstractChatServiceTest`:** Shared specification tests executed against both `InMemoryChatService` and `ChatServiceImpl` (SQLite).
 - **`SocketChatClientTest` & `ProtocolParserTest`:** Frame encoding, decoding, escaping, and socket event pipelines.
-- **`ServerCommandsTest` & `ProtocolIntegrationTest`:** End-to-end multi-client socket communication, unread counts, and slow-client buffering.
+- **`ServerCommandsTest` & `ProtocolIntegrationTest`:** End-to-end multi-client socket communication, unread counts, slow-client buffering, and byte-for-byte attachment transfer across reconnects and server restarts.
 - **`ConversationViewModelTest` & `WorkspaceViewModelTest`:** Reactive MVVM state, optimistic message sends, and status upgrades.
 
 ---
@@ -166,7 +180,7 @@ ChatSphere/
     │   │   │   ├── model/                # Data records (MessageRecord, RoomSummary, etc.)
     │   │   │   └── protocol/             # Protocol constants, codec, and validation
     │   │   └── server/                   # Socket Chat Server
-    │   │       ├── db/                   # JDBC database connection & migrations
+    │   │       ├── db/                   # SQLite schema and user/room/message DAOs
     │   │       ├── net/                  # Socket listener, client handler & sessions
     │   │       ├── security/             # PBKDF2 password hasher
     │   │       └── service/              # SQLite & In-Memory chat service implementations
@@ -190,6 +204,8 @@ ChatSphere uses a custom tab-delimited, newline-terminated protocol over TCP soc
 | `PM` | Client ➔ Server | `PM\t<reqId>\t<user>\t<text>` | Send direct private message |
 | `TYPING` | Client ➔ Server | `TYPING\t<reqId>\t<ROOM\|PRIVATE>\t<target>` | Broadcast typing state |
 | `MARK_READ` | Client ➔ Server | `MARK_READ\t<reqId>\t<ROOM\|PRIVATE>\t<target>\t<upToId>` | Advance read marker |
+| `FILE_START` / `FILE_CHUNK` / `FILE_SEND` | Client ➔ Server | Declared filename and size, Base64 chunks, then commit | Share a file with a room or direct chat |
+| `FILE_GET` / `FILE_DATA` | Both | Message ID and offset, then a Base64 chunk | Download an attachment in bounded chunks |
 | `HISTORY` | Client ➔ Server | `HISTORY\t<reqId>\t<type>\t<target>\t<beforeId>\t<limit>` | Fetch paginated chat history |
 | `SEARCH` | Client ➔ Server | `SEARCH\t<reqId>\t<query...>` | Scoped message search |
 | `SENT` | Server ➔ Client | `SENT\t<reqId>\t<msgId>\t<ts>` | Acknowledgement of saved message |

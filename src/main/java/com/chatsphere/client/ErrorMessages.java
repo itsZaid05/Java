@@ -19,6 +19,11 @@ public final class ErrorMessages {
             case NO_SUCH_USER -> "That user does not exist.";
             case INVALID_TARGET -> "You can't message yourself.";
             case INVALID_MESSAGE -> "Messages can't be empty or longer than 2000 characters.";
+            case INVALID_ATTACHMENT -> "Choose a file with a valid filename.";
+            case ATTACHMENT_TOO_LARGE -> "Choose a file of 5 MiB or smaller.";
+            case ATTACHMENT_UNAVAILABLE -> "This attachment is unavailable.";
+            case FILE_IO_ERROR -> "The file could not be read or saved.";
+            case TRANSFER_IN_PROGRESS -> "Wait for the current upload to finish.";
             case NOT_LOGGED_IN -> "Please sign in again.";
             case NETWORK_ERROR -> "Connection problem. Try again.";
             case TIMEOUT -> "The server took too long to answer.";

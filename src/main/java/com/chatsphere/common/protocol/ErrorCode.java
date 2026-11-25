@@ -7,11 +7,12 @@ public enum ErrorCode {
     USERNAME_TAKEN, INVALID_USERNAME, INVALID_PASSWORD,
     ROOM_EXISTS, INVALID_ROOM_NAME, NO_SUCH_ROOM, NOT_MEMBER,
     NO_SUCH_USER, INVALID_TARGET, INVALID_MESSAGE, SERVER_ERROR,
+    INVALID_ATTACHMENT, ATTACHMENT_TOO_LARGE, ATTACHMENT_UNAVAILABLE,
     // ---- local codes (never sent on the wire) ----
-    NETWORK_ERROR, TIMEOUT, NOT_CONNECTED;
+    NETWORK_ERROR, TIMEOUT, NOT_CONNECTED, FILE_IO_ERROR, TRANSFER_IN_PROGRESS;
 
     public boolean isLocal() {
-        return this == NETWORK_ERROR || this == TIMEOUT || this == NOT_CONNECTED;
+        return this == NETWORK_ERROR || this == TIMEOUT || this == NOT_CONNECTED || this == FILE_IO_ERROR || this == TRANSFER_IN_PROGRESS;
     }
 
     /** Unknown wire strings map to SERVER_ERROR so a newer server never crashes an older client. */

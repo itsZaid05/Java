@@ -19,7 +19,7 @@ public final class Database implements AutoCloseable {
     private static final Logger LOG = Logger.getLogger(Database.class.getName());
 
     /** Bump when the schema changes and add a migration in {@link #migrate}. */
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
 
     private static final String[] SCHEMA = {
         """
@@ -56,6 +56,11 @@ public final class Database implements AutoCloseable {
           status TEXT NOT NULL DEFAULT 'SENT' CHECK (status IN ('SENT','DELIVERED','READ')),
           CHECK ((type='ROOM' AND room_id IS NOT NULL AND recipient_id IS NULL)
               OR (type='PRIVATE' AND room_id IS NULL AND recipient_id IS NOT NULL)))""",
+        """
+        CREATE TABLE IF NOT EXISTS attachments (
+          message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+          size INTEGER NOT NULL CHECK (size >= 0),
+          content BLOB NOT NULL CHECK (length(content) = size))""",
         "CREATE INDEX IF NOT EXISTS idx_msg_room ON messages(room_id, id)",
         "CREATE INDEX IF NOT EXISTS idx_msg_pm ON messages(sender_id, recipient_id, id)",
         "CREATE INDEX IF NOT EXISTS idx_msg_rcpt ON messages(recipient_id, status)"
@@ -92,7 +97,10 @@ public final class Database implements AutoCloseable {
             if (current == 0) {
                 st.execute("INSERT INTO schema_version(version) VALUES (" + SCHEMA_VERSION + ")");
             }
-            // Future: if (current < 2) { ALTER TABLE ...; UPDATE schema_version SET version = 2; }
+            if (current == 1) {
+                // The idempotent schema setup above already created the attachment table.
+                st.execute("UPDATE schema_version SET version = 2");
+            }
         }
     }
 

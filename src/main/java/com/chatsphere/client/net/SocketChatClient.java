@@ -6,6 +6,7 @@ import com.chatsphere.common.protocol.Codec;
 import com.chatsphere.common.protocol.ErrorCode;
 import com.chatsphere.common.protocol.Limits;
 import com.chatsphere.common.protocol.Protocol;
+import com.chatsphere.common.protocol.Validation;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -15,11 +16,16 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -48,7 +54,7 @@ public class SocketChatClient implements ChatClient {
     /** Frame names that answer a request. Anything else without a push meaning is ignored (forward compatibility). */
     private static final Set<String> REPLY_FRAMES = Set.of(Protocol.OK, Protocol.ERROR, Protocol.LOGIN_OK, Protocol.PONG,
             Protocol.SENT, Protocol.ROOM_LIST_RESULT, Protocol.ROOM_MEMBERS_RESULT, Protocol.USER_LIST_RESULT,
-            Protocol.HISTORY_RESULT, Protocol.SEARCH_RESULT);
+            Protocol.HISTORY_RESULT, Protocol.SEARCH_RESULT, Protocol.FILE_DATA);
 
     /** All time values in one place so tests can run fast. Production uses defaults(). */
     static final class Timing {
@@ -119,6 +125,7 @@ public class SocketChatClient implements ChatClient {
 
     private final Executor ui;
     private final Timing timing;
+    private final AtomicBoolean uploading = new AtomicBoolean();
     private final ExecutorService writer = Executors.newSingleThreadExecutor(daemon("chatsphere-client-writer"));
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(daemon("chatsphere-client-scheduler"));
     private final AtomicLong reqCounter = new AtomicLong();
@@ -482,6 +489,116 @@ public class SocketChatClient implements ChatClient {
     }
 
     // =================================================================== requests
+    @Override public boolean supportsAttachments() { return true; }
+
+    @Override
+    public CompletableFuture<AttachmentAck> sendAttachment(TargetType type, String target, Path file) {
+        CompletableFuture<AttachmentAck> result = new CompletableFuture<>();
+        Conn connection = connectedConn();
+        if (!uploading.compareAndSet(false, true)) {
+            failOnUi(result, new ChatException(ErrorCode.TRANSFER_IN_PROGRESS));
+            return result;
+        }
+        result.whenComplete((ack, error) -> uploading.set(false));
+        Thread.ofVirtual().name("chatsphere-upload").start(() -> {
+            try {
+                int size = upload(connection, type, target, file);
+                request(connection, Protocol.FILE_SEND, List.of(),
+                        fields -> new AttachmentAck(ProtocolParser.parseSent(fields), size), result);
+            } catch (IOException | SecurityException e) {
+                failOnUi(result, new ChatException(ErrorCode.FILE_IO_ERROR));
+            } catch (RuntimeException e) {
+                failOnUi(result, transferError(e));
+            }
+        });
+        return result;
+    }
+
+    private int upload(Conn connection, TargetType type, String target, Path file) throws IOException {
+        String filename = file.getFileName().toString();
+        Validation.requireAttachmentName(filename);
+        if (!Files.isRegularFile(file)) throw new ChatException(ErrorCode.FILE_IO_ERROR);
+        long length = Files.size(file);
+        if (length > Limits.ATTACHMENT_MAX_BYTES) throw new ChatException(ErrorCode.ATTACHMENT_TOO_LARGE);
+        int size = (int) length;
+
+        try (InputStream input = Files.newInputStream(file)) {
+            request(connection, Protocol.FILE_START, List.of(type.name(), target, filename, Codec.str(size)),
+                    SocketChatClient::parseOk).join();
+            int remaining = size;
+            while (remaining > 0) {
+                int count = Math.min(remaining, Limits.ATTACHMENT_CHUNK_BYTES);
+                byte[] chunk = input.readNBytes(count);
+                if (chunk.length != count) throw new IOException("File shortened during upload");
+                request(connection, Protocol.FILE_CHUNK, List.of(Base64.getEncoder().encodeToString(chunk)),
+                        SocketChatClient::parseOk).join();
+                remaining -= count;
+            }
+            if (input.read() != -1) throw new IOException("File grew during upload");
+        }
+        return size;
+    }
+
+    @Override
+    public CompletableFuture<Void> saveAttachment(long messageId, int size, Path destination) {
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        Conn connection = connectedConn();
+        Thread.ofVirtual().name("chatsphere-download").start(() -> {
+            try {
+                download(connection, messageId, size, destination);
+                completeOnUi(result, null);
+            } catch (IOException | SecurityException e) {
+                failOnUi(result, new ChatException(ErrorCode.FILE_IO_ERROR));
+            } catch (RuntimeException e) {
+                failOnUi(result, transferError(e));
+            }
+        });
+        return result;
+    }
+
+    private void download(Conn connection, long messageId, int size, Path destination) throws IOException {
+        Validation.requireAttachmentSize(size);
+        Path target = destination.toAbsolutePath();
+        Path temporary = Files.createTempFile(target.getParent(), ".chatsphere-", ".part");
+        try {
+            try (OutputStream output = Files.newOutputStream(temporary)) {
+                int offset = 0;
+                do {
+                    byte[] chunk = request(connection, Protocol.FILE_GET, List.of(Codec.str(messageId), Codec.str(offset)),
+                            SocketChatClient::parseFileData).join();
+                    if (chunk.length != Math.min(size - offset, Limits.ATTACHMENT_CHUNK_BYTES)) {
+                        throw new ChatException(ErrorCode.BAD_REQUEST, "unexpected attachment length");
+                    }
+                    output.write(chunk);
+                    offset += chunk.length;
+                } while (offset < size);
+            }
+            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static Void parseOk(List<String> fields) {
+        expectOk(fields);
+        return null;
+    }
+
+    private static byte[] parseFileData(List<String> fields) {
+        Codec.requireSize(fields, 3);
+        if (!Protocol.FILE_DATA.equals(fields.get(0))) throw new ChatException(ErrorCode.BAD_REQUEST);
+        try {
+            return Base64.getDecoder().decode(fields.get(2));
+        } catch (IllegalArgumentException e) {
+            throw new ChatException(ErrorCode.BAD_REQUEST, "invalid attachment data");
+        }
+    }
+
+    private static ChatException transferError(RuntimeException failure) {
+        Throwable cause = failure instanceof CompletionException ? failure.getCause() : failure;
+        return cause instanceof ChatException chat ? chat : new ChatException(ErrorCode.SERVER_ERROR);
+    }
+
     private Conn connectedConn() {
         synchronized (lock) { return state == ConnectionState.CONNECTED ? conn : null; }
     }
@@ -491,21 +608,29 @@ public class SocketChatClient implements ChatClient {
      * never queued). The parser runs on the reader thread; the future completes through the UI executor.
      */
     private <T> CompletableFuture<T> request(String cmd, List<String> fields, Function<List<String>, T> parser) {
+        return request(connectedConn(), cmd, fields, parser);
+    }
+
+    private <T> CompletableFuture<T> request(Conn c, String cmd, List<String> fields, Function<List<String>, T> parser) {
         CompletableFuture<T> future = new CompletableFuture<>();
-        Conn c = connectedConn();
-        if (c == null) {
+        request(c, cmd, fields, parser, future);
+        return future;
+    }
+
+    private <T> void request(Conn c, String cmd, List<String> fields, Function<List<String>, T> parser,
+                             CompletableFuture<T> future) {
+        if (c == null || c != connectedConn()) {
             failOnUi(future, new ChatException(ErrorCode.NOT_CONNECTED));
-            return future;
+            return;
         }
         String id = nextId();
         byte[] bytes = frameBytes(cmd, id, fields);
         if (bytes.length - 1 > Limits.MAX_LINE_BYTES) {           // the server would close the connection: refuse locally
             failOnUi(future, new ChatException(ErrorCode.BAD_REQUEST, "request too large"));
-            return future;
+            return;
         }
         register(id, new Pending(f -> completeOnUi(future, parser.apply(f)), e -> failOnUi(future, e)));
         write(c, bytes);
-        return future;
     }
 
     private String nextId() { return String.valueOf(reqCounter.incrementAndGet()); }
@@ -565,7 +690,7 @@ public class SocketChatClient implements ChatClient {
     private void readLoop(Conn c) {
         try {
             InputStream in = new BufferedInputStream(c.socket.getInputStream(), 8192);
-            byte[] line = new byte[Limits.MAX_LINE_BYTES];
+            byte[] line = new byte[Limits.MAX_RESULT_LINE_BYTES];
             int len = 0;
             while (true) {
                 int b = in.read();

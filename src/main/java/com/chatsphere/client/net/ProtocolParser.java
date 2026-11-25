@@ -5,8 +5,12 @@ import com.chatsphere.common.protocol.ChatException;
 import com.chatsphere.common.protocol.Codec;
 import com.chatsphere.common.protocol.ErrorCode;
 import com.chatsphere.common.protocol.Protocol;
+import com.chatsphere.common.protocol.Limits;
+import com.chatsphere.common.protocol.Validation;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 
 /**
@@ -29,15 +33,16 @@ public final class ProtocolParser {
     public static ServerEvent parsePush(List<String> f) {
         switch (f.get(0)) {
             case Protocol.MSG_PUSH -> {
-                Codec.requireSize(f, 6);
+                Integer size = attachmentSize(f, 6);
                 return new ServerEvent.RoomMessage(f.get(1),
-                        new MessageRecord(Codec.toLong(f.get(2)), f.get(3), Codec.toLong(f.get(4)), DeliveryStatus.SENT, f.get(5)));
+                        new MessageRecord(Codec.toLong(f.get(2)), f.get(3), Codec.toLong(f.get(4)),
+                                DeliveryStatus.SENT, f.get(5), size));
             }
             case Protocol.PM_PUSH -> {
-                Codec.requireSize(f, 5);
-                // the server marks it DELIVERED right after pushing, so that is its status from the receiver's side
+                Integer size = attachmentSize(f, 5);
                 return new ServerEvent.PrivateMessage(f.get(2),
-                        new MessageRecord(Codec.toLong(f.get(1)), f.get(2), Codec.toLong(f.get(3)), DeliveryStatus.DELIVERED, f.get(4)));
+                        new MessageRecord(Codec.toLong(f.get(1)), f.get(2), Codec.toLong(f.get(3)),
+                                DeliveryStatus.DELIVERED, f.get(4), size));
             }
             case Protocol.USER_STATUS -> {
                 Codec.requireSize(f, 3);
@@ -124,15 +129,31 @@ public final class ProtocolParser {
     /** HISTORY_RESULT reqId targetType target hasMore firstUnreadId count then count x [id, sender, ts, status, text] */
     public static HistoryPage parseHistory(List<String> f) {
         expect(f, Protocol.HISTORY_RESULT);
-        int n = records(f, 6, 7, 5);
+        if (f.size() < 7) throw bad("history header");
+        int n = count(f.get(6));
+        if (n > (f.size() - 7) / 5) throw bad("history count");
+        int trailer = 7 + n * 5;
+        if ((f.size() - trailer) % 2 != 0 || (f.size() - trailer) / 2 > n) {
+            throw bad("history attachment metadata");
+        }
+        Map<Long, Integer> attachments = new HashMap<>();
+        for (int p = trailer; p < f.size(); p += 2) {
+            long id = Codec.toLong(f.get(p));
+            if (attachments.put(id, parseAttachmentSize(f.get(p + 1))) != null) throw bad("duplicate attachment");
+        }
         boolean hasMore = Codec.toBool(f.get(4));
         long firstUnread = Codec.toLong(f.get(5));
         List<MessageRecord> out = new ArrayList<>(n);
         for (int i = 0, p = 7; i < n; i++, p += 5) {
             DeliveryStatus st = Codec.toEnum(DeliveryStatus.class, f.get(p + 3));
             if (st == DeliveryStatus.PENDING || st == DeliveryStatus.FAILED) throw bad("status " + st);   // client-only values
-            out.add(new MessageRecord(Codec.toLong(f.get(p)), f.get(p + 1), Codec.toLong(f.get(p + 2)), st, f.get(p + 4)));
+            long id = Codec.toLong(f.get(p));
+            String text = f.get(p + 4);
+            Integer size = attachments.remove(id);
+            if (size != null) Validation.requireAttachmentName(text);
+            out.add(new MessageRecord(id, f.get(p + 1), Codec.toLong(f.get(p + 2)), st, text, size));
         }
+        if (!attachments.isEmpty()) throw bad("attachment outside history page");
         return new HistoryPage(List.copyOf(out), hasMore, firstUnread);
     }
 
@@ -146,6 +167,19 @@ public final class ProtocolParser {
                     f.get(p + 3), Codec.toLong(f.get(p + 4)), f.get(p + 5)));
         }
         return out;
+    }
+
+    private static Integer attachmentSize(List<String> fields, int textFrameSize) {
+        if (fields.size() == textFrameSize) return null;
+        Codec.requireSize(fields, textFrameSize + 1);
+        Validation.requireAttachmentName(fields.get(textFrameSize - 1));
+        return parseAttachmentSize(fields.get(textFrameSize));
+    }
+
+    private static int parseAttachmentSize(String value) {
+        int size = Codec.toInt(value);
+        if (size < 0 || size > Limits.ATTACHMENT_MAX_BYTES) throw bad("attachment size");
+        return size;
     }
 
     // =================================================================== helpers

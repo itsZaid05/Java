@@ -4,6 +4,20 @@ import java.util.regex.Pattern;
 
 /** The single source of truth for input rules. ChatService must call these; the UI may call them for hints. */
 public final class Validation {
+    public static void requireAttachmentName(String name) {
+        if (name == null || name.isBlank() || name.length() > Limits.ATTACHMENT_NAME_MAX
+                || name.equals(".") || name.equals("..") || name.indexOf('/') >= 0
+                || name.indexOf('\\') >= 0 || name.indexOf(':') >= 0
+                || name.codePoints().anyMatch(Character::isISOControl)) {
+            throw new ChatException(ErrorCode.INVALID_ATTACHMENT);
+        }
+    }
+
+    public static void requireAttachmentSize(int size) {
+        if (size < 0) throw new ChatException(ErrorCode.INVALID_ATTACHMENT);
+        if (size > Limits.ATTACHMENT_MAX_BYTES) throw new ChatException(ErrorCode.ATTACHMENT_TOO_LARGE);
+    }
+
     private Validation() {}
     private static final Pattern USERNAME = Pattern.compile("^[A-Za-z0-9_]{3,20}$");
     private static final Pattern ROOM = Pattern.compile("^[A-Za-z0-9_-]{3,30}$");

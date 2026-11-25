@@ -67,8 +67,10 @@ public class AuthViewModel {
         this.client = client;
         this.session = session;
         this.actions = actions;
-        host.set(config.host());
-        port.set(String.valueOf(config.port()));
+        String previousAddress = session.serverAddressProperty().get();
+        int separator = previousAddress.lastIndexOf(':');
+        host.set(separator < 0 ? config.host() : previousAddress.substring(0, separator));
+        port.set(separator < 0 ? String.valueOf(config.port()) : previousAddress.substring(separator + 1));
 
         connection.bind(session.connectionStateProperty());
         canSubmit = Bindings.createBooleanBinding(
@@ -265,10 +267,18 @@ public class AuthViewModel {
             advancedExpanded.set(true);
             return;
         }
+        ConnectionState state = client.getConnectionState();
+        if (state == ConnectionState.CONNECTING || pending.get()) return;
         attempted = true;
-        session.serverAddressProperty().set(h + ":" + p);
-        if (manual && connection.get() == ConnectionState.RECONNECTING) client.retryNow();
-        else client.connect(h, p);
+        String address = h + ":" + p;
+        boolean changed = !address.equals(session.serverAddressProperty().get());
+        session.serverAddressProperty().set(address);
+        if (manual && !changed && state == ConnectionState.RECONNECTING) {
+            client.retryNow();
+            return;
+        }
+        if (changed && state != ConnectionState.OFFLINE) client.disconnect();
+        client.connect(h, p);
     }
 
     /** 1..65535, or -1. */

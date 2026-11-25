@@ -43,6 +43,9 @@ public interface ChatService {
     MessageRecord saveRoomMessage(String sender, String room, String text);
     /** INVALID_MESSAGE, INVALID_TARGET (to self), NO_SUCH_USER. Stored with status SENT. */
     MessageRecord savePrivateMessage(String sender, String recipient, String text);
+    MessageRecord saveAttachment(String sender, TargetType type, String target, String filename, byte[] data);
+    /** Returns a bounded slice when the requester may view the message. */
+    byte[] attachmentChunk(String requester, long messageId, int offset);
     /** SENT -> DELIVERED for these private message ids. Ignores ids that are not SENT. */
     void markDelivered(List<Long> messageIds);
     /** On login: every SENT private message addressed to `recipient` becomes DELIVERED. Returns senderName -> ids changed. */

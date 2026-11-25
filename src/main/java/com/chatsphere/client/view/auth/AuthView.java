@@ -199,11 +199,16 @@ public class AuthView extends GridPane implements Disposable {
         vm.hostErrorProperty().addListener((o, a, b) -> host.setError(b));
         vm.portErrorProperty().addListener((o, a, b) -> port.setError(b));
 
-        hostPort.managedProperty().bind(vm.advancedExpandedProperty());
-        hostPort.visibleProperty().bind(vm.advancedExpandedProperty());
+        AppButton connect = new AppButton("Connect", AppButton.Variant.SECONDARY);
+        connect.setOnAction(e -> vm.retry());
+        connect.disableProperty().bind(vm.pendingProperty()
+                .or(vm.connectionProperty().isEqualTo(ConnectionState.CONNECTING)));
+        VBox connectionSettings = new VBox(Spacing.SPACE_2, hostPort, connect);
+        connectionSettings.managedProperty().bind(vm.advancedExpandedProperty());
+        connectionSettings.visibleProperty().bind(vm.advancedExpandedProperty());
         vm.advancedExpandedProperty().addListener((o, a, open) ->
                 toggle.withIcon(open ? "fth-chevron-down" : "fth-chevron-right"));
-        return new VBox(0, toggle, hostPort);
+        return new VBox(0, toggle, connectionSettings);
     }
 
     private HBox buildChip() {

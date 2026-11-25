@@ -3,6 +3,7 @@ package com.chatsphere.server.service;
 import com.chatsphere.common.model.*;
 import com.chatsphere.common.protocol.ChatException;
 import com.chatsphere.common.protocol.ErrorCode;
+import com.chatsphere.server.db.Database;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -154,7 +155,30 @@ class SqliteChatServiceTest extends AbstractChatServiceTest {
              ResultSet rs = st.executeQuery("SELECT COUNT(*), MAX(version) FROM schema_version")) {
             assertTrue(rs.next());
             assertEquals(1, rs.getInt(1));
-            assertEquals(1, rs.getInt(2));
+            assertEquals(Database.SCHEMA_VERSION, rs.getInt(2));
+        }
+    }
+
+    @Test
+    void migrates_version_one_with_existing_chat() throws Exception {
+        String path = tmp.resolve("old.db").toString();
+        try (ChatServiceImpl initial = new ChatServiceImpl(path)) {
+            initial.register("alice", "password1");
+            initial.createRoom("alice", "general");
+            initial.saveRoomMessage("alice", "general", "old chat");
+        }
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + path);
+             Statement st = c.createStatement()) {
+            st.executeUpdate("DROP TABLE attachments");
+            st.executeUpdate("UPDATE schema_version SET version = 1");
+        }
+        try (ChatServiceImpl migrated = new ChatServiceImpl(path)) {
+            var old = migrated.history("alice", TargetType.ROOM, "general", 0, 1).messages().getFirst();
+            assertEquals("old chat", old.text());
+            assertNull(old.attachmentSize());
+            var file = migrated.saveAttachment("alice", TargetType.ROOM, "general", "blank.txt", new byte[0]);
+            assertEquals(0, file.attachmentSize());
+            assertArrayEquals(new byte[0], migrated.attachmentChunk("alice", file.id(), 0));
         }
     }
 

@@ -1,6 +1,15 @@
 package com.chatsphere;
 
+import com.chatsphere.client.net.ConnectionState;
+import com.chatsphere.client.net.ServerEvent;
+import com.chatsphere.client.net.SocketChatClient;
+import com.chatsphere.common.model.DeliveryStatus;
+import com.chatsphere.common.model.SearchQuery;
+import com.chatsphere.common.model.TargetType;
+import com.chatsphere.common.protocol.ChatException;
 import com.chatsphere.common.protocol.Codec;
+import com.chatsphere.common.protocol.ErrorCode;
+import com.chatsphere.common.protocol.Limits;
 import com.chatsphere.common.protocol.Protocol;
 import com.chatsphere.server.net.ChatServer;
 import com.chatsphere.server.service.ChatServiceImpl;
@@ -9,6 +18,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -17,9 +28,16 @@ import java.io.OutputStreamWriter;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -36,6 +54,7 @@ class ProtocolIntegrationTest {
     private ChatServer server;
     private int port;
     private final List<Client> clients = new ArrayList<>();
+    private final List<SocketChatClient> desktopClients = new ArrayList<>();
 
     @BeforeEach
     void startServer() throws Exception {
@@ -46,6 +65,7 @@ class ProtocolIntegrationTest {
 
     @AfterEach
     void stopServer() {
+        desktopClients.forEach(SocketChatClient::shutdown);
         clients.forEach(Client::close);
         server.stop();
         service.close();
@@ -514,5 +534,142 @@ class ProtocolIntegrationTest {
         assertEquals("1", h.get(6));
         assertEquals(id, h.get(7));
         assertEquals("persisted", h.get(11));
+    }
+
+    @Test
+    void roomImageArrivesLiveAndOnlyMembersCanSaveIt() throws Exception {
+        SocketChatClient alice = desktopClient("alice", true);
+        SocketChatClient bob = desktopClient("bob", true);
+        SocketChatClient carol = desktopClient("carol", true);
+        await(alice.createRoom("general"));
+        await(bob.joinRoom("general"));
+
+        Path source = tmp.resolve("lab photo.png");
+        var image = new BufferedImage(160, 160, BufferedImage.TYPE_INT_RGB);
+        var random = new Random(7);
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) image.setRGB(x, y, random.nextInt());
+        }
+        assertTrue(ImageIO.write(image, "png", source.toFile()));
+        byte[] original = Files.readAllBytes(source);
+        assertTrue(original.length > Limits.ATTACHMENT_CHUNK_BYTES);
+
+        var incoming = new CompletableFuture<ServerEvent.RoomMessage>();
+        bob.addEventListener(event -> {
+            if (event instanceof ServerEvent.RoomMessage message) incoming.complete(message);
+        });
+        var sent = await(alice.sendAttachment(TargetType.ROOM, "general", source));
+        var received = await(incoming).message();
+        assertEquals(sent.message().id(), received.id());
+        assertEquals("lab photo.png", received.text());
+        assertEquals(original.length, received.attachmentSize());
+        assertEquals(received, await(bob.loadHistory(TargetType.ROOM, "general", 0, 50)).messages().getFirst());
+
+        Path saved = tmp.resolve("download.png");
+        await(bob.saveAttachment(received.id(), received.attachmentSize(), saved));
+        assertArrayEquals(original, Files.readAllBytes(saved));
+
+        assertTransferError(ErrorCode.ATTACHMENT_UNAVAILABLE, carol.saveAttachment(received.id(), original.length, saved));
+        await(bob.leaveRoom("general"));
+        assertTransferError(ErrorCode.ATTACHMENT_UNAVAILABLE, bob.saveAttachment(received.id(), original.length, saved));
+        assertArrayEquals(original, Files.readAllBytes(saved), "failed downloads must preserve an existing file");
+    }
+
+    @Test
+    void offlineAttachmentSurvivesRestartAndAppearsUnreadWithReceipts() throws Exception {
+        SocketChatClient alice = desktopClient("alice", true);
+        service.register("bob", "password1");
+        Path source = Files.writeString(tmp.resolve("study-notes.txt"), "JAVA LAN test\nOne, two, three.");
+        var sent = await(alice.sendAttachment(TargetType.PRIVATE, "bob", source));
+        assertEquals(DeliveryStatus.SENT,
+                await(alice.loadHistory(TargetType.PRIVATE, "bob", 0, 1)).messages().getFirst().status());
+
+        alice.shutdown();
+        server.stop();
+        service.close();
+        startServer();
+        SocketChatClient sender = desktopClient("alice", false);
+        var receipts = new LinkedBlockingQueue<ServerEvent.StatusUpdate>();
+        sender.addEventListener(event -> {
+            if (event instanceof ServerEvent.StatusUpdate update) receipts.add(update);
+        });
+        SocketChatClient bob = desktopClient("bob", false);
+        var delivered = receipts.poll(5, TimeUnit.SECONDS);
+        assertNotNull(delivered);
+        assertEquals(DeliveryStatus.DELIVERED, delivered.status());
+        assertEquals(List.of(sent.message().id()), delivered.messageIds());
+        assertEquals(1, await(bob.listUsers()).getFirst().unread());
+
+        var history = await(bob.loadHistory(TargetType.PRIVATE, "alice", 0, 50));
+        var restored = history.messages().getFirst();
+        assertEquals(sent.message().id(), restored.id());
+        assertEquals(restored.id(), history.firstUnreadId());
+        assertEquals(sent.size(), restored.attachmentSize());
+        Path saved = tmp.resolve("saved-notes.txt");
+        await(bob.saveAttachment(restored.id(), restored.attachmentSize(), saved));
+        assertArrayEquals(Files.readAllBytes(source), Files.readAllBytes(saved));
+
+        await(bob.markRead(TargetType.PRIVATE, "alice", restored.id()));
+        var read = receipts.poll(5, TimeUnit.SECONDS);
+        assertNotNull(read);
+        assertEquals(DeliveryStatus.READ, read.status());
+        assertEquals(List.of(restored.id()), read.messageIds());
+        assertEquals(0, await(bob.listUsers()).getFirst().unread());
+
+        SocketChatClient carol = desktopClient("carol", true);
+        assertTransferError(ErrorCode.ATTACHMENT_UNAVAILABLE,
+                carol.saveAttachment(restored.id(), restored.attachmentSize(), tmp.resolve("unavailable.txt")));
+    }
+
+    @Test
+    void incompleteAndOversizedUploadsLeaveHistoryUnchanged() throws Exception {
+        Client alice = loggedIn("alice");
+        alice.send(Protocol.ROOM_CREATE, "3", "general");
+        alice.expect(Protocol.OK, "3");
+        alice.send(Protocol.FILE_START, "4", "ROOM", "general", "large.bin", Codec.str(Limits.ATTACHMENT_MAX_BYTES + 1));
+        alice.expect(Protocol.ERROR, "4", ErrorCode.ATTACHMENT_TOO_LARGE.name());
+        alice.send(Protocol.FILE_START, "5", "ROOM", "general", "incomplete.bin", "3");
+        alice.expect(Protocol.OK, "5");
+        alice.send(Protocol.FILE_SEND, "6");
+        alice.expect(Protocol.ERROR, "6", ErrorCode.BAD_REQUEST.name());
+        assertTrue(service.history("alice", TargetType.ROOM, "general", 0, 1).messages().isEmpty());
+    }
+
+    @Test
+    void desktopClientLoadsHistoryAndSearchWithLongUnicodeMessages() throws Exception {
+        SocketChatClient alice = desktopClient("alice", true);
+        await(alice.createRoom("general"));
+        String text = "测试".repeat(1000);
+        for (int i = 0; i < 50; i++) service.saveRoomMessage("alice", "general", text);
+        var page = await(alice.loadHistory(TargetType.ROOM, "general", 0, 50));
+        assertEquals(50, page.messages().size());
+        assertEquals(text, page.messages().getFirst().text());
+        var results = await(alice.search(new SearchQuery("测试", "", 0, 0, true, TargetType.ROOM, "general")));
+        assertEquals(50, results.size());
+    }
+
+    private SocketChatClient desktopClient(String user, boolean register) throws Exception {
+        var client = new SocketChatClient(Runnable::run);
+        desktopClients.add(client);
+        var connected = new CountDownLatch(1);
+        client.addEventListener(event -> {
+            if (event instanceof ServerEvent.ConnectionStateChanged state && state.state() == ConnectionState.CONNECTED) {
+                connected.countDown();
+            }
+        });
+        client.connect("127.0.0.1", port);
+        assertTrue(connected.await(5, TimeUnit.SECONDS));
+        if (register) await(client.register(user, "password1".toCharArray()));
+        await(client.login(user, "password1".toCharArray()));
+        return client;
+    }
+
+    private static <T> T await(CompletableFuture<T> future) throws Exception {
+        return future.get(8, TimeUnit.SECONDS);
+    }
+
+    private static void assertTransferError(ErrorCode code, CompletableFuture<?> future) throws Exception {
+        var failure = assertThrows(ExecutionException.class, () -> await(future));
+        assertEquals(code, assertInstanceOf(ChatException.class, failure.getCause()).code());
     }
 }
