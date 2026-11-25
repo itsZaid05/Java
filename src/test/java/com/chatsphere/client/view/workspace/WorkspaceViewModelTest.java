@@ -2,12 +2,19 @@ package com.chatsphere.client.view.workspace;
 
 import com.chatsphere.client.AppContext;
 import com.chatsphere.client.net.FakeChatClient;
+import com.chatsphere.client.net.ServerEvent;
 import com.chatsphere.client.view.workspace.state.ConversationItem;
 import com.chatsphere.client.view.workspace.state.WorkspaceViewModel;
+import com.chatsphere.common.model.DeliveryStatus;
+import com.chatsphere.common.model.MessageRecord;
 import com.chatsphere.common.model.TargetType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -15,12 +22,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for Person 4's WorkspaceViewModel.
  */
 public class WorkspaceViewModelTest {
-    private FakeChatClient client;
+    private PreviewClient client;
     private WorkspaceViewModel vm;
 
     @BeforeEach
     void setUp() {
-        client = new FakeChatClient(Runnable::run);
+        client = new PreviewClient();
         AppContext.init(client);
         client.connect("localhost", 5050);
         client.login("demo", "password1".toCharArray()).join();
@@ -88,5 +95,43 @@ public class WorkspaceViewModelTest {
 
         vm.setRightSlotMode(WorkspaceViewModel.RightSlotMode.NONE);
         assertEquals(WorkspaceViewModel.RightSlotMode.NONE, vm.rightSlotMode());
+    }
+
+    @Test
+    void newlyRegisteredUserAppearsWithoutReselectingDirectTab() {
+        assertNull(vm.findItem(TargetType.PRIVATE, "newuser"));
+        client.push(new ServerEvent.UserStatus("newuser", true));
+        var user = vm.findItem(TargetType.PRIVATE, "newuser");
+        assertNotNull(user);
+        assertTrue(user.isOnline());
+        client.push(new ServerEvent.UserStatus("newuser", false));
+        assertFalse(user.isOnline());
+    }
+
+    @Test
+    void firstMessageFromAnUnlistedUserAppearsWithUnreadCount() {
+        var file = new MessageRecord(51, "newuser", 1000, DeliveryStatus.DELIVERED, "diagram.png", 42);
+        client.push(new ServerEvent.PrivateMessage("newuser", file));
+        var user = vm.findItem(TargetType.PRIVATE, "newuser");
+        assertNotNull(user);
+        assertEquals("diagram.png", user.preview());
+        assertEquals(1, user.unread());
+    }
+
+    private static final class PreviewClient extends FakeChatClient {
+        private final List<Consumer<ServerEvent>> observers = new ArrayList<>();
+
+        PreviewClient() { super(Runnable::run); }
+
+        @Override public Runnable addEventListener(Consumer<ServerEvent> listener) {
+            observers.add(listener);
+            Runnable unsubscribe = super.addEventListener(listener);
+            return () -> {
+                observers.remove(listener);
+                unsubscribe.run();
+            };
+        }
+
+        void push(ServerEvent event) { List.copyOf(observers).forEach(observer -> observer.accept(event)); }
     }
 }

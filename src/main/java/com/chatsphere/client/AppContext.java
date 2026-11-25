@@ -19,16 +19,21 @@ public final class AppContext {
     private final ChatClient client;
     private final SessionState session;
     private final DialogService dialogs = new DialogService();
-    private final ClientConfig config = ClientConfig.load();
+    private final ClientConfig config;
     private SceneNavigator navigator;
     private ToastHost toastHost;
 
-    private AppContext(ChatClient client) {
+    private AppContext(ChatClient client, ClientConfig config) {
         this.client = client;
+        this.config = config;
         this.session = new SessionState(client);
     }
 
-    public static void init(ChatClient client) { instance = new AppContext(client); }
+    public static void init(ChatClient client) { init(client, ClientConfig.load()); }
+
+    public static void init(ChatClient client, ClientConfig config) {
+        instance = new AppContext(client, config);
+    }
     public static AppContext get() {
         if (instance == null) throw new IllegalStateException("AppContext.init(...) was not called");
         return instance;

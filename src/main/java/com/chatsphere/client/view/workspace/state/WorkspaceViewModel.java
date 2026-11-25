@@ -91,18 +91,25 @@ public class WorkspaceViewModel {
 
     public void refreshUsers() {
         client.listUsers().thenAccept(list -> {
-            users.clear();
             for (UserSummary u : list) {
-                ConversationItem item = new ConversationItem(TargetType.PRIVATE, u.username(), u.username());
+                ConversationItem item = getOrCreateUser(u.username());
                 item.setPreview(u.lastText());
                 item.setLastTimestamp(u.lastTimestamp());
                 item.setUnread(u.unread());
                 item.setOnline(u.online());
-                users.add(item);
             }
             sortUsersList();
             updateTotalUnread();
         });
+    }
+
+    private ConversationItem getOrCreateUser(String username) {
+        ConversationItem item = findItem(TargetType.PRIVATE, username);
+        if (item == null) {
+            item = new ConversationItem(TargetType.PRIVATE, username, username);
+            users.add(item);
+        }
+        return item;
     }
 
     /** Sorting: unread first, then online A-Z, then offline A-Z. */
@@ -149,19 +156,17 @@ public class WorkspaceViewModel {
                 }
             }
             case PrivateMessage(String peer, MessageRecord message) -> {
-                ConversationItem item = findItem(TargetType.PRIVATE, peer);
-                if (item != null) {
-                    item.setPreview(message.text());
-                    item.setLastTimestamp(message.timestamp());
-                    if (isSelected(TargetType.PRIVATE, peer)) {
-                        ConversationViewModel vm = conversationCache.get("PRIVATE:" + peer);
-                        if (vm != null) vm.handleIncomingMessage(message);
-                        vm.markRead();
-                    } else {
-                        item.setUnread(item.unread() + 1);
-                        sortUsersList();
-                        updateTotalUnread();
-                    }
+                ConversationItem item = getOrCreateUser(peer);
+                item.setPreview(message.text());
+                item.setLastTimestamp(message.timestamp());
+                if (isSelected(TargetType.PRIVATE, peer)) {
+                    ConversationViewModel vm = getOrCreateConversationViewModel(TargetType.PRIVATE, peer);
+                    vm.handleIncomingMessage(message);
+                    vm.markRead();
+                } else {
+                    item.setUnread(item.unread() + 1);
+                    sortUsersList();
+                    updateTotalUnread();
                 }
             }
             case StatusUpdate(DeliveryStatus status, String peer, List<Long> ids) -> {
@@ -171,11 +176,8 @@ public class WorkspaceViewModel {
                 }
             }
             case UserStatus(String username, boolean online) -> {
-                ConversationItem item = findItem(TargetType.PRIVATE, username);
-                if (item != null) {
-                    item.setOnline(online);
-                    sortUsersList();
-                }
+                getOrCreateUser(username).setOnline(online);
+                sortUsersList();
             }
             case Typing(TargetType type, String target, String user) -> {
                 ConversationViewModel vm = conversationCache.get(type.name() + ":" + target);

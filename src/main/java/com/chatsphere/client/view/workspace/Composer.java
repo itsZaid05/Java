@@ -2,6 +2,7 @@ package com.chatsphere.client.view.workspace;
 
 import com.chatsphere.client.AppContext;
 import com.chatsphere.client.ErrorMessages;
+import com.chatsphere.client.component.AppButton;
 import com.chatsphere.client.component.IconButton;
 import com.chatsphere.client.component.Severity;
 import com.chatsphere.client.view.workspace.state.ConversationViewModel;
@@ -98,7 +99,8 @@ public class Composer extends VBox {
         });
 
         if (viewModel.supportsAttachments()) {
-            IconButton attach = new IconButton("fth-paperclip", "Attach a file or image (up to 5 MiB)");
+            AppButton attach = new AppButton("Attach", AppButton.Variant.GHOST).withIcon("fth-paperclip");
+            attach.setTooltip(new javafx.scene.control.Tooltip("Send a file or image up to 5 MiB"));
             attach.setOnAction(e -> chooseAttachment(attach));
             inputBox.getChildren().add(attach);
         }
@@ -106,16 +108,18 @@ public class Composer extends VBox {
         getChildren().add(inputBox);
     }
 
-    private void chooseAttachment(IconButton button) {
+    private void chooseAttachment(AppButton button) {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Send a file or image");
         var selected = chooser.showOpenDialog(getScene().getWindow());
         if (selected == null) return;
         button.setDisable(true);
-        AppContext.get().toast("Sending " + selected.getName() + "…", Severity.INFO);
+        button.setText("Sending…");
         viewModel.sendAttachment(selected.toPath()).whenComplete((ignored, error) -> {
             button.setDisable(false);
+            button.setText("Attach");
             if (error != null) AppContext.get().toast(ErrorMessages.of(error), Severity.ERROR);
+            else AppContext.get().toast("Attachment sent.", Severity.SUCCESS);
         });
     }
 

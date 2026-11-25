@@ -4,6 +4,7 @@ import com.chatsphere.client.nav.SceneNavigator;
 import com.chatsphere.client.net.ChatClient;
 import com.chatsphere.client.net.FakeChatClient;
 import com.chatsphere.client.net.SocketChatClient;
+import com.chatsphere.client.state.ClientConfig;
 import com.chatsphere.client.theme.ThemeGallery;
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -23,7 +24,7 @@ public class ClientApp extends Application {
         List<String> args = getParameters().getRaw();
         Executor ui = Platform::runLater;
         client = args.contains("--fake") ? new FakeChatClient(ui) : new SocketChatClient(ui);
-        AppContext.init(client);
+        AppContext.init(client, ClientConfig.load().withOverrides(getParameters().getNamed()));
 
         SceneNavigator nav = new SceneNavigator(stage);
         if (args.contains("--gallery")) nav.showDevPage(ThemeGallery.create());

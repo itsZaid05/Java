@@ -124,9 +124,18 @@ public class AuthView extends GridPane implements Disposable {
         modeLink.disableProperty().bind(vm.pendingProperty());
         modeLink.setOnAction(e -> { vm.toggleMode(); username.requestInputFocus(); });
 
+        Label connectionHelp = new Label("Start the ChatSphere server first, or enter its LAN address in Connection settings.");
+        connectionHelp.getStyleClass().addAll("small", "text-secondary");
+        connectionHelp.setWrapText(true);
+        connectionHelp.visibleProperty().bind(vm.connectionProperty().isEqualTo(ConnectionState.OFFLINE));
+        connectionHelp.managedProperty().bind(connectionHelp.visibleProperty());
+
+        username.disableProperty().bind(vm.pendingProperty());
+        password.disableProperty().bind(vm.pendingProperty());
+        confirm.disableProperty().bind(vm.pendingProperty());
         VBox advanced = buildAdvanced();
 
-        VBox form = new VBox(Spacing.SPACE_4, heading, sub, notice, error, username, password, confirm, submit, modeLink, advanced);
+        VBox form = new VBox(Spacing.SPACE_4, heading, sub, notice, error, username, password, confirm, submit, modeLink, connectionHelp, advanced);
         form.getStyleClass().add("auth-form");
         form.setPrefWidth(360);
         form.setMinWidth(360);

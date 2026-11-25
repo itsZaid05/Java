@@ -2,7 +2,7 @@
 
 [![Java](https://img.shields.io/badge/Java-21%2B-ED8B00?style=flat&logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/21/)
 [![JavaFX](https://img.shields.io/badge/JavaFX-21-blue?style=flat)](https://openjfx.io/)
-[![Build & Tests](https://img.shields.io/badge/Tests-368%20Passing-brightgreen?style=flat)](#testing)
+[![Build & Tests](https://img.shields.io/badge/Tests-371%20Passing-brightgreen?style=flat)](#testing)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
 
 **ChatSphere** is a high-performance desktop chat platform written in **Java 21**. It features a modern **JavaFX** client, a concurrent virtual-thread socket server, and dual-backend persistence (SQLite JDBC and In-Memory specification).
@@ -15,7 +15,7 @@
 - [Architecture](#architecture)
 - [Tech Stack & Prerequisites](#tech-stack--prerequisites)
 - [Getting Started](#getting-started)
-  - [Build](#build)
+  - [Build from source](#build-from-source)
   - [Run the Server](#run-the-server)
   - [Run the Client](#run-the-client)
   - [Run Standalone Client (Mock Mode)](#run-standalone-client-mock-mode)
@@ -84,45 +84,46 @@ flowchart LR
 
 ## Getting Started
 
-### 1. Clone & Build
-```bash
-git clone https://github.com/Sujal-gupta-05/ChatSphere.git
-cd ChatSphere
-mvn clean compile
-```
+### Build from source
+
+Extract the ChatSphere source ZIP and open the folder containing `pom.xml`. Use a **JDK 21**. Confirm it with `java -version` and `javac -version`. Run `./mvnw clean verify` on Linux or macOS, or `mvnw.cmd clean verify` on Windows. The wrapper downloads Maven and dependencies on the first online run.
+
+For the portable download, extract the ZIP for your platform and follow [the local verification walkthrough](docs/VERIFY.md). The portable launchers only require an installed Java runtime.
+
+On Windows use `mvnw.cmd` in place of `./mvnw` for every source command below.
 
 ### 2. Run the Server
 
 #### Option A: Persistent Database (SQLite)
 Stores data in `chatsphere.db` in the working directory:
 ```bash
-mvn compile exec:java
+./mvnw compile exec:java
 ```
 
 #### Option B: In-Memory (No disk storage)
 Runs entirely in memory (useful for testing or ephemeral runs):
 ```bash
-mvn compile exec:java -Dexec.args="--memory"
+./mvnw compile exec:java -Dexec.args="--memory"
 ```
 
 ### 3. Run the Client
 
-Connects to the server defined in `src/main/resources/config.properties` (default `localhost:5050`):
+Wait for the server to print “ChatSphere server ready” and keep it running. In a separate terminal, launch the client. It connects to `localhost:5050` by default.
 ```bash
-mvn javafx:run
+./mvnw javafx:run
 ```
 
 ### 4. Run Standalone Client (Mock Mode)
 
 To explore or test the UI without starting the server, run with the `--fake` flag. This uses `FakeChatClient` pre-loaded with simulated bot interactions, rooms (`#general`, `#random`), and mock direct chats:
 ```bash
-mvn javafx:run -Djavafx.args="--fake"
+./mvnw javafx:run -Djavafx.args="--fake"
 ```
 > **Pre-seeded credentials:** `demo` / `password1`
 
 ### 5. Component Gallery & Dev Harness
 ```bash
-mvn javafx:run -Djavafx.args="--gallery"
+./mvnw javafx:run -Djavafx.args="--gallery"
 ```
 
 ### Classroom demo over LAN
@@ -130,12 +131,23 @@ mvn javafx:run -Djavafx.args="--gallery"
 Use Java 21 and Maven 3.9+ on each computer. Run the server and client commands once while online to cache Maven dependencies. After that, pass `-o` to Maven to use the local cache. Chat and file transfers run entirely over the local network.
 
 1. Connect both computers to the same Wi-Fi or Ethernet network. For a one-computer demo, open two client windows and use `localhost`.
-2. On the server computer, start the SQLite server with `mvn -o compile exec:java`. Its default TCP port is `5050`.
-3. On each client computer, run `mvn -o javafx:run`. On the sign-in screen, open **Connection settings** and enter the server's local IPv4 address and port. Select **Connect** and register a different account in each client. If a second computer cannot connect, check that the server firewall allows TCP port `5050` on the private network and that the Wi-Fi permits communication between devices.
-4. Create a room from the first client and join it using **Browse** from the second. Send a chat message, then use the paperclip to send a small PNG or PDF. Select **Save attachment…** on the receiving client.
+2. On the server computer, start the SQLite server with `./mvnw -o compile exec:java`. Its default TCP port is `5050`.
+3. On each client computer, run `./mvnw -o javafx:run`. On the sign-in screen, open **Connection settings** and enter the server's local IPv4 address and port. Select **Connect** and register a different account in each client. If a second computer cannot connect, check that the server firewall allows TCP port `5050` on the private network and that the Wi-Fi permits communication between devices.
+4. Create a room from the first client and join it using **Browse** from the second. Send a chat message, then select **Attach** to send a small PNG or PDF. Select **Save attachment…** on the receiving client.
 5. Sign out from the second client. Send it a direct message with an attachment, then sign back in there to show the unread count, saved history, and delivery and read ticks on the sender's screen.
 
 Use a trusted private network. This demo uses plain TCP, so credentials and chat traffic are visible to anyone who can inspect network traffic. Keep the server off the public Internet. Run the same branch on the server and both clients for attachment support.
+
+### Build a portable ZIP
+
+With Python 3 and the source build complete, resolve the runtime dependencies for the platform before running the packaging script. Use a fresh dependency directory for each platform.
+
+```bash
+./mvnw org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies -DincludeScope=runtime -Djavafx.platform=linux -DoutputDirectory=target/portable-linux
+python3 tools/package-demo.py linux-x64 target/chatsphere-1.0.0.jar target/portable-linux target/ChatSphere-linux-x64.zip
+```
+
+For Windows x64, use `-Djavafx.platform=win`, a Windows dependency directory, and the `windows-x64` packaging argument.
 
 ---
 
