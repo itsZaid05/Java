@@ -22,6 +22,7 @@ import org.kordamp.ikonli.javafx.FontIcon;
 public class Sidebar extends VBox {
     private final WorkspaceViewModel viewModel;
     private final SegmentedTabs tabs = new SegmentedTabs("Rooms", "Direct");
+    private final VBox roomSection = new VBox();
     private final VBox roomListBox = new VBox();
     private final VBox userListBox = new VBox();
     private final StackPane listContainer = new StackPane();
@@ -99,8 +100,8 @@ public class Sidebar extends VBox {
 
         tabs.selectedIndexProperty().addListener((obs, oldVal, newVal) -> {
             boolean isRooms = newVal.intValue() == 0;
-            roomListBox.setVisible(isRooms);
-            roomListBox.setManaged(isRooms);
+            roomSection.setVisible(isRooms);
+            roomSection.setManaged(isRooms);
             userListBox.setVisible(!isRooms);
             userListBox.setManaged(!isRooms);
             if (!isRooms) viewModel.refreshUsers();
@@ -108,8 +109,6 @@ public class Sidebar extends VBox {
     }
 
     private void buildLists() {
-        VBox roomSection = new VBox();
-
         HBox actionBar = new HBox(8);
         actionBar.getStyleClass().add("sidebar-action-bar");
 
@@ -155,7 +154,8 @@ public class Sidebar extends VBox {
     private void renderRooms() {
         roomListBox.getChildren().clear();
         for (ConversationItem item : viewModel.rooms()) {
-            boolean sel = viewModel.selected() != null && viewModel.selected().key().equals(item.key());
+            boolean sel = viewModel.selected() != null && viewModel.selected().type() == item.type()
+                    && viewModel.selected().key().equals(item.key());
             ConversationRow row = new ConversationRow(item, sel);
             row.setOnMouseClicked(e -> viewModel.setSelected(item));
             roomListBox.getChildren().add(row);
@@ -165,7 +165,8 @@ public class Sidebar extends VBox {
     private void renderUsers() {
         userListBox.getChildren().clear();
         for (ConversationItem item : viewModel.users()) {
-            boolean sel = viewModel.selected() != null && viewModel.selected().key().equals(item.key());
+            boolean sel = viewModel.selected() != null && viewModel.selected().type() == item.type()
+                    && viewModel.selected().key().equals(item.key());
             ConversationRow row = new ConversationRow(item, sel);
             row.setOnMouseClicked(e -> viewModel.setSelected(item));
             userListBox.getChildren().add(row);
