@@ -2,7 +2,7 @@
 
 [![Java](https://img.shields.io/badge/Java-21%2B-ED8B00?style=flat&logo=openjdk&logoColor=white)](https://openjdk.org/projects/jdk/21/)
 [![JavaFX](https://img.shields.io/badge/JavaFX-21-blue?style=flat)](https://openjfx.io/)
-[![Build & Tests](https://img.shields.io/badge/Tests-371%20Passing-brightgreen?style=flat)](#testing)
+[![Build & Tests](https://img.shields.io/badge/Tests-377%20Passing-brightgreen?style=flat)](#testing)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
 
 **ChatSphere** is a high-performance desktop chat platform written in **Java 21**. It features a modern **JavaFX** client, a concurrent virtual-thread socket server, and dual-backend persistence (SQLite JDBC and In-Memory specification).
@@ -34,7 +34,7 @@
 - **Smart Stream Grouping:** Bubbles group dynamically by sender within temporal windows (5-minute proximity), with automatic day separators and unread dividers.
 - **LAN file and image sharing:** Attach a file of up to 5 MiB to a room or direct message. Recipients can save the original bytes from chat history. Filenames are searchable.
 - **Real-Time Indicators:** Ephemeral typing strips and live presence indicators (online/offline tracking).
-- **History & Scoped Search:** Paginated message retrieval and full-text keyword search with substring marking, sender/date filters, and conversation scoping.
+- **History & Scoped Search:** Paginated message retrieval and full-text keyword search with substring marking, sender/date filters, and conversation scoping. Opening a result scrolls to the matched message.
 - **Adaptive Design System:** Light and Dark themes backed by custom CSS tokens, typography scale, and avatar color hashing.
 
 ### Server & Backend
@@ -133,7 +133,7 @@ Use Java 21 and Maven 3.9+ on each computer. Run the server and client commands 
 1. Connect both computers to the same Wi-Fi or Ethernet network. For a one-computer demo, open two client windows and use `localhost`.
 2. On the server computer, start the SQLite server with `./mvnw -o compile exec:java`. Its default TCP port is `5050`.
 3. On each client computer, run `./mvnw -o javafx:run`. On the sign-in screen, open **Connection settings** and enter the server's local IPv4 address and port. Select **Connect** and register a different account in each client. If a second computer cannot connect, check that the server firewall allows TCP port `5050` on the private network and that the Wi-Fi permits communication between devices.
-4. Create a room from the first client and join it using **Browse** from the second. Send a chat message, then select **Attach** to send a small PNG or PDF. Select **Save attachment…** on the receiving client.
+4. Create a room from the first client and join it using **Browse** from the second. Send a chat message, then select **Attach** to send a small PNG or PDF. Select the attachment’s **download button** on the receiving client.
 5. Sign out from the second client. Send it a direct message with an attachment, then sign back in there to show the unread count, saved history, and delivery and read ticks on the sender's screen.
 
 Use a trusted private network. This demo uses plain TCP, so credentials and chat traffic are visible to anyone who can inspect network traffic. Keep the server off the public Internet. Run the same branch on the server and both clients for attachment support.

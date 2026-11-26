@@ -36,6 +36,8 @@ public class ConversationViewModel {
     private final BooleanProperty loading = new SimpleBooleanProperty(false);
     private final BooleanProperty hasEarlier = new SimpleBooleanProperty(false);
     private final BooleanProperty error = new SimpleBooleanProperty(false);
+    private final ReadOnlyLongWrapper historyFocus = new ReadOnlyLongWrapper();
+    private long historyRequest;
     private final ObservableSet<String> typingUsers = FXCollections.observableSet(new HashSet<>());
     private final Map<String, PauseTransition> typingTimers = new ConcurrentHashMap<>();
 
@@ -59,111 +61,112 @@ public class ConversationViewModel {
     public BooleanProperty loadingProperty() { return loading; }
     public BooleanProperty hasEarlierProperty() { return hasEarlier; }
     public BooleanProperty errorProperty() { return error; }
+    public ReadOnlyLongProperty historyFocusProperty() { return historyFocus.getReadOnlyProperty(); }
     public ObservableSet<String> typingUsers() { return typingUsers; }
     public int unreadAtOpen() { return unreadAtOpen; }
     public long newestLoadedId() { return newestLoadedId; }
 
     public void setOnUnreadCleared(Runnable r) { this.onUnreadCleared = r; }
 
-    /** Load first page of 50 messages. */
+    /** Load the latest page, keeping unsent drafts and newer live pushes. */
     public void loadInitial() {
         if (loading.get()) return;
+        long request = ++historyRequest;
         loading.set(true);
         error.set(false);
 
-        client.loadHistory(type, target, 0, 50).thenAccept(page -> {
+        client.loadHistory(type, target, 0, 50).whenComplete((page, failure) -> {
+            if (request != historyRequest) return;
             loading.set(false);
-            items.clear();
-            hasEarlier.set(page.hasMore());
-
-            List<MessageRecord> records = page.messages();
-            if (records.isEmpty()) {
-                oldestLoadedId = 0;
-                newestLoadedId = 0;
+            if (failure != null) {
+                error.set(true);
                 return;
             }
-
-            oldestLoadedId = records.get(0).id();
-            newestLoadedId = records.get(records.size() - 1).id();
-            long firstUnread = page.firstUnreadId();
-
-            buildInitialItems(records, firstUnread);
-        }).exceptionally(ex -> {
-            loading.set(false);
-            error.set(true);
-            return null;
+            List<MessageRecord> records = new ArrayList<>(page.messages());
+            long lastStored = records.isEmpty() ? 0 : records.getLast().id();
+            records.addAll(savedMessagesAfter(lastStored));
+            historyFocus.set(0);
+            replaceHistory(records, page.firstUnreadId(), page.hasMore());
         });
     }
 
-    private void buildInitialItems(List<MessageRecord> records, long firstUnreadId) {
-        LocalDate lastDate = null;
-        boolean dividerInserted = false;
-        int unreadCount = 0;
-
-        if (firstUnreadId > 0) {
-            for (MessageRecord r : records) {
-                if (r.id() >= firstUnreadId && !r.sender().equals(currentUser)) {
-                    unreadCount++;
-                }
-            }
-            if (unreadCount == 0 && firstUnreadId < records.get(0).id()) {
-                unreadCount = 1;
-            }
-        }
-
-        if (firstUnreadId > 0 && firstUnreadId < records.get(0).id()) {
-            items.add(new UnreadDividerItem(unreadCount, unreadCount + " unread messages"));
-            dividerInserted = true;
-        }
-
-        List<MessageItem> msgItems = new ArrayList<>();
-        for (MessageRecord r : records) {
-            LocalDate msgDate = Instant.ofEpochMilli(r.timestamp()).atZone(ZoneId.systemDefault()).toLocalDate();
-            if (lastDate == null || !lastDate.equals(msgDate)) {
-                items.add(new DaySeparatorItem(msgDate, formatDay(msgDate)));
-                lastDate = msgDate;
-            }
-
-            if (!dividerInserted && firstUnreadId > 0 && r.id() >= firstUnreadId) {
-                items.add(new UnreadDividerItem(unreadCount, unreadCount + " unread messages"));
-                dividerInserted = true;
-            }
-
-            boolean isOwn = r.sender().equals(currentUser);
-            MessageItem item = new MessageItem(r.id(), null, r.sender(), r.text(), r.timestamp(), r.status(), isOwn, r.attachmentSize());
-            msgItems.add(item);
-            items.add(item);
-        }
-
-        recomputeGrouping(msgItems);
+    private List<MessageRecord> savedMessagesAfter(long id) {
+        return items.stream()
+                .filter(MessageItem.class::isInstance)
+                .map(MessageItem.class::cast)
+                .filter(m -> m.id() != null && m.id() > id)
+                .map(m -> new MessageRecord(m.id(), m.sender(), m.timestamp(), m.status(), m.text(), m.attachmentSize()))
+                .toList();
     }
 
-    /** Load earlier messages when scrolling up. */
+    private void replaceHistory(List<MessageRecord> records, long firstUnreadId, boolean hasMore) {
+        List<MessageItem> unsent = items.stream()
+                .filter(MessageItem.class::isInstance)
+                .map(MessageItem.class::cast)
+                .filter(m -> m.id() == null)
+                .toList();
+        List<MessageRecord> sorted = records.stream().sorted(Comparator.comparingLong(MessageRecord::id)).toList();
+        oldestLoadedId = sorted.isEmpty() ? 0 : sorted.getFirst().id();
+        newestLoadedId = sorted.isEmpty() ? 0 : sorted.getLast().id();
+        hasEarlier.set(hasMore);
+
+        List<ChatListItem> replacement = new ArrayList<>();
+        List<MessageItem> grouped = new ArrayList<>();
+        LocalDate previousDate = null;
+        boolean showUnread = firstUnreadId > 0;
+        long unreadCount = showUnread ? sorted.stream()
+                .filter(r -> r.id() >= firstUnreadId && !r.sender().equals(currentUser)).count() : 0;
+
+        for (MessageRecord r : sorted) {
+            LocalDate date = localDate(r.timestamp());
+            if (!date.equals(previousDate)) {
+                replacement.add(new DaySeparatorItem(date, formatDay(date)));
+                previousDate = date;
+            }
+            if (showUnread && unreadCount > 0 && r.id() >= firstUnreadId) {
+                replacement.add(new UnreadDividerItem((int) unreadCount,
+                        unreadCount + (unreadCount == 1 ? " unread message" : " unread messages")));
+                showUnread = false;
+            }
+            MessageItem item = new MessageItem(r.id(), null, r.sender(), r.text(), r.timestamp(),
+                    r.status(), r.sender().equals(currentUser), r.attachmentSize());
+            grouped.add(item);
+            replacement.add(item);
+        }
+
+        for (MessageItem item : unsent) {
+            LocalDate date = localDate(item.timestamp());
+            if (!date.equals(previousDate)) {
+                replacement.add(new DaySeparatorItem(date, formatDay(date)));
+                previousDate = date;
+            }
+            grouped.add(item);
+            replacement.add(item);
+        }
+        recomputeGrouping(grouped);
+        items.setAll(replacement);
+    }
+
+    /** Prepend one page without replacing a pending send or a retryable failure. */
     public void loadEarlier() {
         if (loading.get() || !hasEarlier.get() || oldestLoadedId <= 0) return;
+        long request = ++historyRequest;
         loading.set(true);
-
-        client.loadHistory(type, target, oldestLoadedId, 50).thenAccept(page -> {
+        error.set(false);
+        client.loadHistory(type, target, oldestLoadedId, 50).whenComplete((page, failure) -> {
+            if (request != historyRequest) return;
             loading.set(false);
-            hasEarlier.set(page.hasMore());
-            List<MessageRecord> earlier = page.messages();
-            if (earlier.isEmpty()) return;
-
-            oldestLoadedId = earlier.get(0).id();
-
-            List<MessageRecord> combined = new ArrayList<>(earlier);
-            for (ChatListItem it : items) {
-                if (it instanceof MessageItem m && m.id() != null) {
-                    combined.add(new MessageRecord(m.id(), m.sender(), m.timestamp(), m.status(), m.text(), m.attachmentSize()));
-                }
+            if (failure != null) {
+                error.set(true);
+                return;
             }
-            combined.sort(Comparator.comparingLong(MessageRecord::id));
-
-            items.clear();
-            buildInitialItems(combined, 0);
-        }).exceptionally(ex -> {
-            loading.set(false);
-            return null;
+            if (page.messages().isEmpty()) {
+                hasEarlier.set(false);
+                return;
+            }
+            List<MessageRecord> records = new ArrayList<>(page.messages());
+            records.addAll(savedMessagesAfter(0));
+            replaceHistory(records, 0, page.hasMore());
         });
     }
 
@@ -247,7 +250,7 @@ public class ConversationViewModel {
             }
         }
 
-        LocalDate msgDate = Instant.ofEpochMilli(msg.timestamp()).atZone(ZoneId.systemDefault()).toLocalDate();
+        LocalDate msgDate = localDate(msg.timestamp());
         if (items.isEmpty() || !hasDateSeparatorFor(msgDate)) {
             items.add(new DaySeparatorItem(msgDate, formatDay(msgDate)));
         }
@@ -288,7 +291,11 @@ public class ConversationViewModel {
         PauseTransition timer = new PauseTransition(Duration.seconds(4));
         timer.setOnFinished(e -> removeTypingUser(user));
         typingTimers.put(user, timer);
-        try { try { timer.play(); } catch (Exception ignored) {} } catch (Exception ignored) {}
+        try {
+            timer.play();
+        } catch (IllegalStateException ignored) {
+            // View-model tests can run without a JavaFX toolkit.
+        }
     }
 
     private void removeTypingUser(String user) {
@@ -331,21 +338,21 @@ public class ConversationViewModel {
         items.add(new SystemItem(user + " " + (joined ? "joined the room" : "left the room")));
     }
 
-    /** Jump to message (search hit). */
+    /** A search result supersedes in-flight history so the correct window wins. */
     public void jumpToMessage(long messageId) {
+        long request = ++historyRequest;
         loading.set(true);
-        client.loadHistoryAround(type, target, messageId).thenAccept(page -> {
+        error.set(false);
+        client.loadHistoryAround(type, target, messageId).whenComplete((page, failure) -> {
+            if (request != historyRequest) return;
             loading.set(false);
-            items.clear();
-            hasEarlier.set(page.hasMore());
-            if (!page.messages().isEmpty()) {
-                oldestLoadedId = page.messages().get(0).id();
-                newestLoadedId = page.messages().get(page.messages().size() - 1).id();
+            if (failure != null || page.messages().stream().noneMatch(message -> message.id() == messageId)) {
+                error.set(true);
+                return;
             }
-            buildInitialItems(page.messages(), 0);
-        }).exceptionally(ex -> {
-            loading.set(false);
-            return null;
+            historyFocus.set(0);
+            replaceHistory(page.messages(), 0, page.hasMore());
+            historyFocus.set(messageId);
         });
     }
 
@@ -372,17 +379,22 @@ public class ConversationViewModel {
             MessageItem prev = (i > 0) ? list.get(i - 1) : null;
             MessageItem next = (i < list.size() - 1) ? list.get(i + 1) : null;
 
-            boolean first = (prev == null)
-                    || !prev.sender().equals(curr.sender())
-                    || (curr.timestamp() - prev.timestamp() > GROUP_WINDOW_MS);
-
-            boolean last = (next == null)
-                    || !next.sender().equals(curr.sender())
-                    || (next.timestamp() - curr.timestamp() > GROUP_WINDOW_MS);
+            boolean first = prev == null || !sameGroup(prev, curr);
+            boolean last = next == null || !sameGroup(curr, next);
 
             curr.setFirstInGroup(first);
             curr.setLastInGroup(last);
         }
+    }
+
+    private boolean sameGroup(MessageItem earlier, MessageItem later) {
+        return earlier.sender().equals(later.sender())
+                && Math.abs(later.timestamp() - earlier.timestamp()) <= GROUP_WINDOW_MS
+                && localDate(earlier.timestamp()).equals(localDate(later.timestamp()));
+    }
+
+    private static LocalDate localDate(long timestamp) {
+        return Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()).toLocalDate();
     }
 
     private String formatDay(LocalDate d) {
@@ -393,6 +405,7 @@ public class ConversationViewModel {
     }
 
     public void dispose() {
+        historyRequest++;
         for (PauseTransition t : typingTimers.values()) t.stop();
         typingTimers.clear();
         typingUsers.clear();

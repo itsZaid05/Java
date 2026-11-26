@@ -15,7 +15,7 @@ The portable ZIPs include the app's Maven runtime dependencies. They use an inst
 
 1. Select **Create an account** in each client. Choose two different usernames with at least three characters and passwords with at least eight. Confirm each password. Registration opens the workspace. After signing out, try a wrong password, then sign in with the correct one.
 2. Create a room in one client. In the other, select **Browse**, join the room, and open it. Type briefly to show the typing indicator in the other window. Send a message and confirm it appears on both sides.
-3. With the room selected, click **Attach** and select `demo-note.txt`, then repeat with a PNG or JPEG under 5 MiB. The receiving client shows the filenames. Select **Save attachment…** to save a copy of each. Compare the saved file with the original.
+3. With the room selected, click **Attach** and select `demo-note.txt`, then repeat with a PNG or JPEG under 5 MiB. The receiving client shows the filenames. Select the attachment’s **download button** to save a copy of each. Compare the saved file with the original.
 4. Select **Direct** and open the other account. Send a message and an attachment. Open the conversation on the receiving side and check the sender's delivered and read indicators.
 5. Sign out of the receiving client and check its offline status in the sender's Direct list. Send another direct message and file. Sign back in to the receiving account, check the unread count, open the chat, and save the file from history.
 6. Leave the room, rejoin it via **Browse**, and open it to see earlier messages and attachments. Use **Search messages** to search by keyword or filename, then narrow the results by sender, date, or conversation.

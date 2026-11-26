@@ -46,6 +46,15 @@ public class WorkspaceView extends BorderPane implements Disposable {
         rightSlot.setManaged(false);
 
         viewModel.rightSlotModeProperty().addListener((obs, oldVal, newVal) -> updateRightSlot(newVal));
+        viewModel.selectedProperty().addListener((obs, previous, selected) -> {
+            if (viewModel.rightSlotMode() == RightSlotMode.DETAILS) {
+                updateRightSlot(RightSlotMode.DETAILS);
+            } else if (!rightSlot.getChildren().isEmpty()
+                    && rightSlot.getChildren().getFirst() instanceof SearchPanel search) {
+                search.setCurrentConversation(selected == null ? null : selected.type(),
+                        selected == null ? null : selected.key());
+            }
+        });
 
         addEventFilter(KeyEvent.KEY_PRESSED, this::handleGlobalKey);
 

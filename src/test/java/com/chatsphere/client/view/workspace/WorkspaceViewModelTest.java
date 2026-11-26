@@ -6,6 +6,7 @@ import com.chatsphere.client.net.ServerEvent;
 import com.chatsphere.client.view.workspace.state.ConversationItem;
 import com.chatsphere.client.view.workspace.state.WorkspaceViewModel;
 import com.chatsphere.common.model.DeliveryStatus;
+import com.chatsphere.common.model.HistoryPage;
 import com.chatsphere.common.model.MessageRecord;
 import com.chatsphere.common.model.TargetType;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -118,8 +120,38 @@ public class WorkspaceViewModelTest {
         assertEquals(1, user.unread());
     }
 
+    @Test
+    void reopeningAConversationReloadsMessagesReceivedWhileItWasClosed() {
+        ConversationItem alice = vm.findItem(TargetType.PRIVATE, "alice");
+        vm.setSelected(alice);
+        vm.setSelected(vm.findItem(TargetType.ROOM, "general"));
+
+        client.push(new ServerEvent.PrivateMessage("alice",
+                new MessageRecord(93, "alice", 2000, DeliveryStatus.DELIVERED, "new while away")));
+        assertEquals(1, alice.unread());
+        vm.setSelected(alice);
+
+        assertEquals(2, client.aliceHistoryLoads);
+    }
+
+    @Test
+    void roomRefreshKeepsSelectionAndLeaveDiscardsCachedHistory() {
+        ConversationItem general = vm.findItem(TargetType.ROOM, "general");
+        vm.setSelected(general);
+        var previous = vm.getOrCreateConversationViewModel(TargetType.ROOM, "general");
+
+        vm.refreshRooms();
+        assertSame(general, vm.findItem(TargetType.ROOM, "general"));
+        assertSame(general, vm.selected());
+        client.push(new ServerEvent.RoomMembersChanged("general", "demo", false));
+
+        assertNull(vm.findItem(TargetType.ROOM, "general"));
+        assertNotSame(previous, vm.getOrCreateConversationViewModel(TargetType.ROOM, "general"));
+    }
+
     private static final class PreviewClient extends FakeChatClient {
         private final List<Consumer<ServerEvent>> observers = new ArrayList<>();
+        int aliceHistoryLoads;
 
         PreviewClient() { super(Runnable::run); }
 
@@ -130,6 +162,11 @@ public class WorkspaceViewModelTest {
                 observers.remove(listener);
                 unsubscribe.run();
             };
+        }
+
+        @Override public CompletableFuture<HistoryPage> loadHistory(TargetType type, String target, long beforeId, int limit) {
+            if (type == TargetType.PRIVATE && "alice".equals(target)) aliceHistoryLoads++;
+            return super.loadHistory(type, target, beforeId, limit);
         }
 
         void push(ServerEvent event) { List.copyOf(observers).forEach(observer -> observer.accept(event)); }

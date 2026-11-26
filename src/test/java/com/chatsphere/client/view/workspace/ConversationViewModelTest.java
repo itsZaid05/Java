@@ -5,13 +5,16 @@ import com.chatsphere.client.net.FakeChatClient;
 import com.chatsphere.client.view.workspace.state.ChatListItem.*;
 import com.chatsphere.client.view.workspace.state.ConversationViewModel;
 import com.chatsphere.common.model.DeliveryStatus;
+import com.chatsphere.common.model.HistoryPage;
 import com.chatsphere.common.model.MessageRecord;
+import com.chatsphere.common.model.SentAck;
 import com.chatsphere.common.model.TargetType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -135,5 +138,78 @@ public class ConversationViewModelTest {
 
         boolean hasUnreadDivider = privateVm.items().stream().anyMatch(it -> it instanceof UnreadDividerItem);
         assertTrue(hasUnreadDivider, "Conversation with unread messages should render UnreadDivider");
+    }
+
+    @Test
+    void earlierHistoryPreservesPendingItemAndItsAcknowledgment() {
+        var historyClient = new HistoryClient();
+        var conversation = new ConversationViewModel(TargetType.ROOM, "general", historyClient, "demo");
+        conversation.loadInitial();
+        historyClient.latest.complete(new HistoryPage(List.of(stored(10, "recent")), true, 0));
+        conversation.sendMessage("Still sending");
+        MessageItem pending = (MessageItem) conversation.items().getLast();
+
+        conversation.loadEarlier();
+        historyClient.earlier.complete(new HistoryPage(List.of(stored(2, "earlier")), false, 0));
+        assertSame(pending, conversation.items().getLast());
+        assertEquals(DeliveryStatus.PENDING, pending.status());
+
+        historyClient.send.complete(new SentAck(11, pending.timestamp()));
+        assertEquals(11L, pending.id());
+        assertEquals(DeliveryStatus.SENT, pending.status());
+    }
+
+    @Test
+    void newerLiveAttachmentIsKeptWhenInitialHistoryArrives() {
+        var historyClient = new HistoryClient();
+        var conversation = new ConversationViewModel(TargetType.ROOM, "general", historyClient, "demo");
+        conversation.loadInitial();
+        var live = new MessageRecord(11, "bob", System.currentTimeMillis(), DeliveryStatus.SENT, "diagram.png", 41);
+        conversation.handleIncomingMessage(live);
+
+        historyClient.latest.complete(new HistoryPage(List.of(stored(10, "history")), false, 0));
+        MessageItem retained = (MessageItem) conversation.items().getLast();
+        assertEquals(11L, retained.id());
+        assertEquals(41, retained.attachmentSize());
+        assertEquals(11, conversation.newestLoadedId());
+    }
+
+    @Test
+    void searchWindowWinsOverInFlightInitialHistory() {
+        var historyClient = new HistoryClient();
+        var conversation = new ConversationViewModel(TargetType.ROOM, "general", historyClient, "demo");
+        conversation.loadInitial();
+        conversation.jumpToMessage(5);
+        historyClient.around.complete(new HistoryPage(List.of(stored(5, "matched")), true, 0));
+        historyClient.latest.complete(new HistoryPage(List.of(stored(10, "unrelated")), false, 0));
+
+        assertEquals(5, conversation.historyFocusProperty().get());
+        assertEquals("matched", ((MessageItem) conversation.items().getLast()).text());
+        assertFalse(conversation.loadingProperty().get());
+    }
+
+    private static MessageRecord stored(long id, String text) {
+        return new MessageRecord(id, "bob", System.currentTimeMillis(), DeliveryStatus.SENT, text);
+    }
+
+    private static final class HistoryClient extends FakeChatClient {
+        final CompletableFuture<HistoryPage> latest = new CompletableFuture<>();
+        final CompletableFuture<HistoryPage> earlier = new CompletableFuture<>();
+        final CompletableFuture<HistoryPage> around = new CompletableFuture<>();
+        final CompletableFuture<SentAck> send = new CompletableFuture<>();
+
+        HistoryClient() { super(Runnable::run); }
+
+        @Override public CompletableFuture<HistoryPage> loadHistory(TargetType type, String target, long beforeId, int limit) {
+            return beforeId == 0 ? latest : earlier;
+        }
+
+        @Override public CompletableFuture<HistoryPage> loadHistoryAround(TargetType type, String target, long id) {
+            return around;
+        }
+
+        @Override public CompletableFuture<SentAck> sendRoomMessage(String room, String text) {
+            return send;
+        }
     }
 }

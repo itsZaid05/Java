@@ -54,7 +54,7 @@ public class SearchPanel extends VBox {
     private final ComboBox<String> sender = new ComboBox<>();
     private final DatePicker from = new DatePicker();
     private final DatePicker to = new DatePicker();
-    private final SegmentedTabs scopeTabs = new SegmentedTabs("This conversation", "Everywhere");
+    private final SegmentedTabs scopeTabs = new SegmentedTabs("Current chat", "All chats");
     private final ListView<SearchHit> list = new ListView<>();
     private final StackPane content = new StackPane();
     private final PauseTransition debounce = new PauseTransition(Duration.millis(300));
@@ -95,7 +95,7 @@ public class SearchPanel extends VBox {
         });
     }
 
-    /** Pre-selects the "This conversation" scope. Pass a null target to clear (the scope then falls back to Everywhere). */
+    /** Pre-selects the current chat. Pass a null target to search all chats. */
     public void setCurrentConversation(TargetType type, String target) {
         vm.setCurrent(type, target);
     }
@@ -171,7 +171,6 @@ public class SearchPanel extends VBox {
         from.valueProperty().addListener((o, a, b) -> vm.searchIfActive());
         to.valueProperty().addListener((o, a, b) -> vm.searchIfActive());
 
-        // scope toggle: segment 0 = This conversation, 1 = Everywhere
         scopeTabs.selectedIndexProperty().set(vm.scopeProperty().get() == Scope.CURRENT ? 0 : 1);
         scopeTabs.setSegmentDisabled(0, !vm.hasCurrentProperty().get());
         scopeTabs.selectedIndexProperty().addListener((o, a, b) -> {

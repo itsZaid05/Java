@@ -3,7 +3,7 @@
 }
 
 .sidebar {
-    -fx-background-color: -cs-surface;
+    -fx-background-color: -cs-sidebar-bg;
     -fx-border-color: transparent -cs-border transparent transparent;
     -fx-border-width: 0 1px 0 0;
     -fx-pref-width: 300px;
@@ -12,6 +12,7 @@
 }
 
 .sidebar-header {
+    -fx-background-color: -cs-sidebar-bg;
     -fx-padding: 12px 16px;
     -fx-min-height: 64px;
     -fx-pref-height: 64px;
@@ -33,18 +34,22 @@
 
 .sidebar-search-btn {
     -fx-background-color: -cs-surface-sunken;
-    -fx-background-radius: 4px;
+    -fx-background-radius: 9px;
     -fx-padding: 8px 12px;
     -fx-min-height: 36px;
     -fx-pref-height: 36px;
     -fx-cursor: hand;
     -fx-border-color: -cs-border;
-    -fx-border-radius: 4px;
+    -fx-border-radius: 9px;
     -fx-border-width: 1px;
 }
 
 .sidebar-search-btn:hover {
     -fx-background-color: -cs-surface-hover;
+}
+
+.sidebar-search-icon {
+    -fx-icon-color: -cs-text-tertiary;
 }
 
 .sidebar-search-text {
@@ -87,10 +92,10 @@
     -fx-pref-height: 56px;
     -fx-min-height: 56px;
     -fx-padding: 8px 16px;
+    -fx-background-insets: 2px 8px;
+    -fx-background-radius: 10px;
     -fx-background-color: transparent;
     -fx-cursor: hand;
-    -fx-border-color: transparent transparent transparent transparent;
-    -fx-border-width: 0 0 0 2px;
 }
 
 .conversation-row:hover {
@@ -99,7 +104,6 @@
 
 .conversation-row.selected {
     -fx-background-color: -cs-primary-subtle;
-    -fx-border-color: transparent transparent transparent -cs-primary;
 }
 
 .conversation-row .row-title {
@@ -125,7 +129,7 @@
 
 .room-tile {
     -fx-background-color: -cs-surface-sunken;
-    -fx-background-radius: 4px;
+    -fx-background-radius: 8px;
     -fx-min-width: 32px;
     -fx-min-height: 32px;
     -fx-pref-width: 32px;
@@ -133,9 +137,15 @@
     -fx-alignment: center;
 }
 
+.room-symbol {
+    -fx-font-size: 17px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -cs-primary;
+}
+
 .room-tile-large {
     -fx-background-color: -cs-surface-sunken;
-    -fx-background-radius: 6px;
+    -fx-background-radius: 10px;
     -fx-min-width: 40px;
     -fx-min-height: 40px;
     -fx-pref-width: 40px;
@@ -158,10 +168,11 @@
 }
 
 .conversation-pane {
-    -fx-background-color: -cs-surface;
+    -fx-background-color: -cs-chat-bg;
 }
 
 .conversation-header {
+    -fx-background-color: -cs-surface;
     -fx-padding: 12px 20px;
     -fx-min-height: 64px;
     -fx-pref-height: 64px;
@@ -181,14 +192,14 @@
     -fx-text-fill: -cs-text-secondary;
 }
 
-.message-list-scroll {
+.message-list-scroll, .message-list-scroll > .viewport {
     -fx-background-color: transparent;
 }
 
 .message-column {
-    -fx-padding: 16px;
-    -fx-spacing: 2px;
-    -fx-max-width: 760px;
+    -fx-padding: 12px 20px;
+    -fx-spacing: 6px;
+    -fx-max-width: 880px;
 }
 
 .message-bubble-row {
@@ -202,21 +213,21 @@
 
 .message-bubble {
     -fx-padding: 8px 12px;
-    -fx-background-radius: 8px;
+    -fx-background-radius: 12px;
     -fx-max-width: 520px;
 }
 
 .message-bubble.incoming {
     -fx-background-color: -cs-bubble-in-bg;
     -fx-border-color: -cs-border;
-    -fx-border-radius: 8px;
+    -fx-border-radius: 6px 14px 14px 14px;
     -fx-border-width: 1px;
-    -fx-background-radius: 4px 8px 8px 8px;
+    -fx-background-radius: 6px 14px 14px 14px;
 }
 
 .message-bubble.outgoing {
     -fx-background-color: -cs-bubble-out-bg;
-    -fx-background-radius: 8px 4px 8px 8px;
+    -fx-background-radius: 14px 6px 14px 14px;
 }
 
 .message-text {
@@ -271,6 +282,7 @@
 .day-separator-line {
     -fx-background-color: -cs-border;
     -fx-pref-height: 1px;
+    -fx-max-height: 1px;
 }
 
 .day-separator-label {
@@ -287,6 +299,7 @@
 .unread-divider-line {
     -fx-background-color: -cs-accent;
     -fx-pref-height: 1px;
+    -fx-max-height: 1px;
 }
 
 .unread-divider-pill {
@@ -326,15 +339,17 @@
 .new-messages-pill {
     -fx-background-color: -cs-primary;
     -fx-background-radius: 16px;
+    -fx-text-fill: -cs-on-primary;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
     -fx-padding: 6px 16px;
     -fx-effect: dropshadow(gaussian, rgba(16,24,40,0.16), 8, 0, 0, 2);
     -fx-cursor: hand;
 }
 
-.new-messages-pill-text {
-    -fx-font-size: 12px;
-    -fx-font-weight: bold;
-    -fx-text-fill: -cs-on-primary;
+.history-error {
+    -fx-text-fill: -cs-danger;
+    -fx-padding: 6px 12px;
 }
 
 .typing-strip {
@@ -360,13 +375,13 @@
 }
 
 .composer-input-box {
-    -fx-background-color: -cs-surface-sunken;
-    -fx-background-radius: 6px;
+    -fx-background-color: -cs-chat-bg;
+    -fx-background-radius: 13px;
     -fx-border-color: -cs-border-strong;
-    -fx-border-radius: 6px;
+    -fx-border-radius: 13px;
     -fx-border-width: 1px;
-    -fx-padding: 8px 12px;
-    -fx-alignment: bottom-right;
+    -fx-padding: 6px 8px;
+    -fx-alignment: center;
 }
 
 .composer-input-box:focused-within {
@@ -386,6 +401,62 @@
 .composer-textarea .content {
     -fx-background-color: transparent;
     -fx-padding: 0;
+}
+
+.composer-attach {
+    -fx-padding: 4px 8px;
+}
+
+.composer-send {
+    -fx-background-color: -cs-primary;
+    -fx-background-radius: 9px;
+}
+
+.composer-send:hover {
+    -fx-background-color: -cs-primary-hover;
+}
+
+.composer-send .ikonli-font-icon {
+    -fx-icon-color: -cs-on-primary;
+}
+
+.attachment-card {
+    -fx-padding: 6px;
+    -fx-pref-width: 232px;
+    -fx-spacing: 9px;
+    -fx-background-color: -cs-surface-hover;
+    -fx-background-radius: 9px;
+}
+
+.attachment-tile {
+    -fx-min-width: 34px;
+    -fx-min-height: 34px;
+    -fx-background-color: -cs-primary-subtle;
+    -fx-background-radius: 7px;
+}
+
+.attachment-icon {
+    -fx-icon-color: -cs-primary;
+}
+
+.attachment-name {
+    -fx-text-fill: -cs-text;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.attachment-details {
+    -fx-text-fill: -cs-text-secondary;
+    -fx-font-size: 11px;
+}
+
+.attachment-save {
+    -fx-background-color: -cs-surface;
+    -fx-background-radius: 7px;
+}
+
+.attachment-save:hover {
+    -fx-background-color: -cs-primary-subtle;
 }
 
 .composer-counter {
@@ -470,6 +541,8 @@
     -fx-wrap-text: true;
 }
 
-.highlight-flash {
-    -fx-background-color: -cs-highlight !important;
+.highlight-flash > .message-bubble {
+    -fx-border-color: -cs-primary;
+    -fx-border-width: 2px;
+    -fx-border-radius: 12px;
 }

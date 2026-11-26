@@ -3,6 +3,7 @@ package com.chatsphere.client.view.workspace;
 import com.chatsphere.client.AppContext;
 import com.chatsphere.client.ErrorMessages;
 import com.chatsphere.client.component.Avatar;
+import com.chatsphere.client.component.IconButton;
 import com.chatsphere.client.component.Severity;
 import com.chatsphere.client.view.workspace.state.ChatListItem.MessageItem;
 import com.chatsphere.common.model.DeliveryStatus;
@@ -10,7 +11,10 @@ import com.chatsphere.common.model.TargetType;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
 import javafx.scene.control.Hyperlink;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import org.kordamp.ikonli.javafx.FontIcon;
@@ -19,6 +23,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
@@ -85,16 +90,13 @@ public class MessageBubble extends HBox {
             bubbleBox.getChildren().add(senderLabel);
         }
 
-        // Message text
-        Label textLabel = new Label(item.text());
-        textLabel.getStyleClass().add("message-text");
-        textLabel.setWrapText(true);
-        textLabel.setMaxWidth(520);
-        bubbleBox.getChildren().add(textLabel);
-        if (item.attachmentSize() != null) {
-            Hyperlink download = new Hyperlink("Save attachment…");
-            download.setOnAction(e -> chooseDestination(download));
-            bubbleBox.getChildren().add(download);
+        if (item.attachmentSize() == null) {
+            Label textLabel = new Label(item.text());
+            textLabel.getStyleClass().add("message-text");
+            textLabel.setWrapText(true);
+            bubbleBox.getChildren().add(textLabel);
+        } else {
+            bubbleBox.getChildren().add(attachmentCard());
         }
 
         // Meta row: time + tick
@@ -120,9 +122,9 @@ public class MessageBubble extends HBox {
         failedBox.getStyleClass().add("bubble-failed-box");
         FontIcon alertIcon = new FontIcon("fth-alert-circle");
         alertIcon.setStyle("-fx-icon-color: -cs-danger;");
-        Label retryLabel = new Label("Not sent. Retry");
+        Hyperlink retryLabel = new Hyperlink("Not sent. Retry");
         retryLabel.getStyleClass().add("bubble-failed-label");
-        retryLabel.setOnMouseClicked(e -> {
+        retryLabel.setOnAction(e -> {
             if (onRetry != null) onRetry.accept(item);
         });
         failedBox.getChildren().addAll(alertIcon, retryLabel);
@@ -134,17 +136,56 @@ public class MessageBubble extends HBox {
         getChildren().add(bubbleBox);
     }
 
-    private void chooseDestination(Hyperlink link) {
+    private HBox attachmentCard() {
+        String name = item.text();
+        int dot = name.lastIndexOf('.');
+        String extension = dot < 0 ? "" : name.substring(dot + 1).toLowerCase(Locale.ROOT);
+        boolean image = switch (extension) {
+            case "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg" -> true;
+            default -> false;
+        };
+        FontIcon icon = new FontIcon(image ? "fth-image" : "fth-file");
+        icon.setIconSize(18);
+        icon.getStyleClass().add("attachment-icon");
+        StackPane tile = new StackPane(icon);
+        tile.getStyleClass().add("attachment-tile");
+
+        Label fileName = new Label(name);
+        fileName.getStyleClass().add("attachment-name");
+        fileName.setTooltip(new Tooltip(name));
+        fileName.setWrapText(true);
+        Label details = new Label((image ? "Image" : "File") + " · " + formatSize(item.attachmentSize()));
+        details.getStyleClass().add("attachment-details");
+        VBox fileInfo = new VBox(2, fileName, details);
+        fileInfo.setMinWidth(0);
+        HBox.setHgrow(fileInfo, Priority.ALWAYS);
+
+        IconButton save = new IconButton("fth-download", "Save " + name);
+        save.getStyleClass().add("attachment-save");
+        save.setOnAction(e -> chooseDestination(save));
+        HBox row = new HBox(10, tile, fileInfo, save);
+        row.getStyleClass().add("attachment-card");
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    private static String formatSize(int size) {
+        if (size < 1024) return size + " B";
+        if (size < 1024 * 1024) return String.format(Locale.ROOT, "%.1f KiB", size / 1024.0);
+        return String.format(Locale.ROOT, "%.1f MiB", size / (1024.0 * 1024));
+    }
+
+    private void chooseDestination(IconButton button) {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Save attachment");
         chooser.setInitialFileName(item.text());
         var destination = chooser.showSaveDialog(getScene().getWindow());
         if (destination == null) return;
-        link.setDisable(true);
-        link.setText("Saving…");
+        button.setDisable(true);
+        button.setIcon("fth-clock");
         saveAttachment.apply(item, destination.toPath()).whenComplete((ignored, error) -> {
-            link.setDisable(false);
-            link.setText("Save attachment…");
+            button.setDisable(false);
+            button.setIcon("fth-download");
             if (error == null) AppContext.get().toast("Attachment saved.", Severity.SUCCESS);
             else AppContext.get().toast(ErrorMessages.of(error), Severity.ERROR);
         });

@@ -13,7 +13,6 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import org.kordamp.ikonli.javafx.FontIcon;
 
 /**
  * Conversation header (64px high) with avatar, title, subtitle and action buttons.
@@ -28,9 +27,8 @@ public class ConversationHeader extends HBox {
         if (item.type() == TargetType.ROOM) {
             StackPane tile = new StackPane();
             tile.getStyleClass().add("room-tile-large");
-            FontIcon hash = new FontIcon("fth-hash");
-            hash.setIconSize(20);
-            hash.setStyle("-fx-icon-color: -cs-text-secondary;");
+            Label hash = new Label("#");
+            hash.getStyleClass().add("room-symbol");
             tile.getChildren().add(hash);
             getChildren().add(tile);
         } else {
@@ -51,7 +49,8 @@ public class ConversationHeader extends HBox {
         Label subtitleLabel = new Label();
         subtitleLabel.getStyleClass().add("header-subtitle");
         if (item.type() == TargetType.ROOM) {
-            subtitleLabel.textProperty().bind(item.memberCountProperty().asString("%d members"));
+            subtitleLabel.textProperty().bind(item.memberCountProperty()
+                    .map(count -> count + (count.intValue() == 1 ? " member" : " members")));
         } else {
             subtitleLabel.textProperty().bind(item.onlineProperty().map(online -> online ? "Online" : "Offline"));
         }

@@ -1,6 +1,8 @@
 /* Colour tokens. The ONLY place hex colours may appear. Names are final (contract C2). */
 .root {
     -cs-bg-app: #0E1217;
+    -cs-sidebar-bg: #151D2A;
+    -cs-chat-bg: #101824;
     -cs-surface: #151A21;
     -cs-surface-sunken: #0A0D11;
     -cs-surface-hover: #1B2129;
@@ -24,7 +26,7 @@
     -cs-warning: #E0B04A;
     -cs-danger: #E5646A;
     -cs-danger-subtle: #3A1A1C;
-    -cs-bubble-out-bg: #1B2B49;
+    -cs-bubble-out-bg: #1D384A;
     -cs-bubble-out-text: #DCE8FC;
     -cs-bubble-in-bg: #1B2129;
     -cs-tick-read: #5B93F0;

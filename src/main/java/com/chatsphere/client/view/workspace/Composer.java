@@ -7,14 +7,18 @@ import com.chatsphere.client.component.IconButton;
 import com.chatsphere.client.component.Severity;
 import com.chatsphere.client.view.workspace.state.ConversationViewModel;
 import com.chatsphere.common.model.TargetType;
+import com.chatsphere.common.protocol.Limits;
 import javafx.beans.binding.Bindings;
+import javafx.beans.value.ObservableBooleanValue;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
+import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import org.kordamp.ikonli.javafx.FontIcon;
@@ -30,29 +34,35 @@ public class Composer extends VBox {
     private final Label counterLabel = new Label();
     private final HBox offlineHintBox = new HBox();
 
-    public Composer(ConversationViewModel viewModel, boolean peerOnline) {
+    public Composer(ConversationViewModel viewModel, ObservableBooleanValue peerOnline) {
         this.viewModel = viewModel;
         getStyleClass().add("composer");
 
-        if (viewModel.type() == TargetType.PRIVATE && !peerOnline) {
+        if (viewModel.type() == TargetType.PRIVATE) {
             offlineHintBox.getStyleClass().add("offline-hint-box");
             FontIcon infoIcon = new FontIcon("fth-info");
             infoIcon.setStyle("-fx-icon-color: -cs-text-tertiary;");
             Label hint = new Label(viewModel.target() + " is offline. They'll get this when they sign in.");
             hint.getStyleClass().add("offline-hint-text");
             offlineHintBox.getChildren().addAll(infoIcon, hint);
+            offlineHintBox.visibleProperty().bind(Bindings.not(peerOnline));
+            offlineHintBox.managedProperty().bind(offlineHintBox.visibleProperty());
             getChildren().add(offlineHintBox);
         }
 
         HBox inputBox = new HBox();
         inputBox.getStyleClass().add("composer-input-box");
-        inputBox.setAlignment(Pos.BOTTOM_RIGHT);
+        inputBox.setAlignment(Pos.CENTER);
         inputBox.setSpacing(8);
 
         String placeholder = (viewModel.type() == TargetType.ROOM)
                 ? "Message #" + viewModel.target()
                 : "Message " + viewModel.target();
         input.setPromptText(placeholder);
+        input.setAccessibleText(placeholder);
+        input.setMinWidth(0);
+        sendBtn.getStyleClass().add("composer-send");
+        sendBtn.setTooltip(new Tooltip("Send message (Enter)"));
         input.getStyleClass().add("composer-textarea");
         HBox.setHgrow(input, Priority.ALWAYS);
 
@@ -61,7 +71,7 @@ public class Composer extends VBox {
         counterLabel.setManaged(false);
 
         sendBtn.disableProperty().bind(Bindings.createBooleanBinding(
-                () -> input.getText().trim().isEmpty(),
+                () -> input.getText().isBlank() || input.getLength() > Limits.MESSAGE_MAX,
                 input.textProperty()
         ));
         sendBtn.setOnAction(e -> doSend());
@@ -78,20 +88,12 @@ public class Composer extends VBox {
         });
 
         input.textProperty().addListener((obs, oldVal, newVal) -> {
-            int len = newVal.length();
-            if (len >= 1800) {
-                counterLabel.setText(len + " / 2000");
-                counterLabel.setVisible(true);
-                counterLabel.setManaged(true);
-                if (len >= 2000) {
-                    counterLabel.getStyleClass().add("warning");
-                } else {
-                    counterLabel.getStyleClass().remove("warning");
-                }
-            } else {
-                counterLabel.setVisible(false);
-                counterLabel.setManaged(false);
-            }
+            int length = newVal.length();
+            counterLabel.setText(length + " / " + Limits.MESSAGE_MAX);
+            counterLabel.setVisible(length >= Limits.MESSAGE_MAX - 200);
+            counterLabel.setManaged(counterLabel.isVisible());
+            counterLabel.getStyleClass().remove("warning");
+            if (length > Limits.MESSAGE_MAX) counterLabel.getStyleClass().add("warning");
 
             if (!newVal.isBlank()) {
                 viewModel.sendTyping();
@@ -100,7 +102,10 @@ public class Composer extends VBox {
 
         if (viewModel.supportsAttachments()) {
             AppButton attach = new AppButton("Attach", AppButton.Variant.GHOST).withIcon("fth-paperclip");
-            attach.setTooltip(new javafx.scene.control.Tooltip("Send a file or image up to 5 MiB"));
+            attach.getStyleClass().add("composer-attach");
+            attach.setMinWidth(Region.USE_PREF_SIZE);
+            attach.setAccessibleText("Attach file or image");
+            attach.setTooltip(new Tooltip("Send a file or image up to 5 MiB"));
             attach.setOnAction(e -> chooseAttachment(attach));
             inputBox.getChildren().add(attach);
         }
@@ -113,11 +118,9 @@ public class Composer extends VBox {
         chooser.setTitle("Send a file or image");
         var selected = chooser.showOpenDialog(getScene().getWindow());
         if (selected == null) return;
-        button.setDisable(true);
-        button.setText("Sending…");
+        button.setPending(true);
         viewModel.sendAttachment(selected.toPath()).whenComplete((ignored, error) -> {
-            button.setDisable(false);
-            button.setText("Attach");
+            button.setPending(false);
             if (error != null) AppContext.get().toast(ErrorMessages.of(error), Severity.ERROR);
             else AppContext.get().toast("Attachment sent.", Severity.SUCCESS);
         });
@@ -125,7 +128,7 @@ public class Composer extends VBox {
 
     private void doSend() {
         String text = input.getText();
-        if (text == null || text.isBlank()) return;
+        if (sendBtn.isDisabled()) return;
         viewModel.sendMessage(text);
         input.clear();
     }

@@ -3,6 +3,7 @@ package com.chatsphere.client.view.workspace;
 import com.chatsphere.client.AppContext;
 import com.chatsphere.client.component.*;
 import com.chatsphere.client.net.ConnectionState;
+import com.chatsphere.common.model.TargetType;
 import com.chatsphere.client.view.workspace.state.ConversationItem;
 import com.chatsphere.client.view.workspace.state.WorkspaceViewModel;
 import com.chatsphere.client.view.workspace.state.WorkspaceViewModel.RightSlotMode;
@@ -76,7 +77,7 @@ public class Sidebar extends VBox {
 
         FontIcon icon = new FontIcon("fth-search");
         icon.setIconSize(16);
-        icon.setStyle("-fx-icon-color: -cs-text-tertiary;");
+        icon.getStyleClass().add("sidebar-search-icon");
 
         Label placeholder = new Label("Search messages");
         placeholder.getStyleClass().add("sidebar-search-text");
@@ -105,6 +106,11 @@ public class Sidebar extends VBox {
             userListBox.setVisible(!isRooms);
             userListBox.setManaged(!isRooms);
             if (!isRooms) viewModel.refreshUsers();
+        });
+        viewModel.selectedProperty().addListener((obs, previous, selected) -> {
+            if (selected != null) {
+                tabs.selectedIndexProperty().set(selected.type() == TargetType.ROOM ? 0 : 1);
+            }
         });
     }
 

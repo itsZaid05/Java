@@ -10,7 +10,6 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import org.kordamp.ikonli.javafx.FontIcon;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -39,9 +38,8 @@ public class ConversationRow extends HBox {
         if (item.type() == TargetType.ROOM) {
             StackPane tile = new StackPane();
             tile.getStyleClass().add("room-tile");
-            FontIcon hash = new FontIcon("fth-hash");
-            hash.setIconSize(16);
-            hash.setStyle("-fx-icon-color: -cs-text-secondary;");
+            Label hash = new Label("#");
+            hash.getStyleClass().add("room-symbol");
             tile.getChildren().add(hash);
             getChildren().add(tile);
         } else {
@@ -56,10 +54,11 @@ public class ConversationRow extends HBox {
         textCol.setSpacing(2);
         HBox.setHgrow(textCol, Priority.ALWAYS);
 
-        HBox topRow = new HBox();
+        HBox topRow = new HBox(8);
         topRow.setAlignment(Pos.CENTER_LEFT);
         Label titleLabel = new Label(item.title());
         titleLabel.getStyleClass().add("row-title");
+        titleLabel.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(titleLabel, Priority.ALWAYS);
 
         Label timeLabel = new Label();
@@ -68,15 +67,16 @@ public class ConversationRow extends HBox {
             timeLabel.setText(formatTime(item.lastTimestamp()));
         }
         item.lastTimestampProperty().addListener((obs, oldVal, newVal) -> {
-            if (newVal.longValue() > 0) timeLabel.setText(formatTime(newVal.longValue()));
+            timeLabel.setText(newVal.longValue() > 0 ? formatTime(newVal.longValue()) : "");
         });
         topRow.getChildren().addAll(titleLabel, timeLabel);
 
-        HBox bottomRow = new HBox();
+        HBox bottomRow = new HBox(8);
         bottomRow.setAlignment(Pos.CENTER_LEFT);
         Label previewLabel = new Label();
         previewLabel.getStyleClass().add("row-preview");
         previewLabel.textProperty().bind(item.previewProperty());
+        previewLabel.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(previewLabel, Priority.ALWAYS);
 
         UnreadBadge badge = new UnreadBadge();

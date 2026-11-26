@@ -38,10 +38,11 @@ public class WorkspaceViewModel {
         selected.addListener((obs, oldVal, newVal) -> {
             if (newVal != null) {
                 ConversationViewModel cvm = getOrCreateConversationViewModel(newVal.type(), newVal.key());
-                if (cvm.items().isEmpty()) {
+                if (cvm.items().isEmpty() || newVal.unread() > 0 || cvm.historyFocusProperty().get() > 0) {
                     cvm.loadInitial();
+                } else {
+                    cvm.markRead();
                 }
-                cvm.markRead();
                 newVal.setUnread(0);
                 updateTotalUnread();
             }
@@ -71,16 +72,22 @@ public class WorkspaceViewModel {
         loading.set(true);
         client.listRooms(true).thenAccept(list -> {
             loading.set(false);
-            rooms.clear();
-            list.sort(Comparator.comparing(RoomSummary::name, String.CASE_INSENSITIVE_ORDER));
-            for (RoomSummary r : list) {
-                ConversationItem item = new ConversationItem(TargetType.ROOM, r.name(), "#" + r.name());
+            List<ConversationItem> updated = new ArrayList<>();
+            for (RoomSummary r : list.stream().sorted(Comparator.comparing(RoomSummary::name,
+                    String.CASE_INSENSITIVE_ORDER)).toList()) {
+                ConversationItem item = findItem(TargetType.ROOM, r.name());
+                if (item == null) item = new ConversationItem(TargetType.ROOM, r.name(), "#" + r.name());
                 item.setPreview(r.lastText());
                 item.setLastTimestamp(r.lastTimestamp());
                 item.setUnread(r.unread());
                 item.setJoined(r.joined());
                 item.setMemberCount(r.memberCount());
-                rooms.add(item);
+                updated.add(item);
+            }
+            rooms.setAll(updated);
+            ConversationItem current = selected.get();
+            if (current != null && current.type() == TargetType.ROOM && !updated.contains(current)) {
+                selected.set(null);
             }
             updateTotalUnread();
         }).exceptionally(ex -> {
@@ -146,8 +153,8 @@ public class WorkspaceViewModel {
                     item.setPreview(message.text());
                     item.setLastTimestamp(message.timestamp());
                     if (isSelected(TargetType.ROOM, room)) {
-                        ConversationViewModel vm = conversationCache.get("ROOM:" + room);
-                        if (vm != null) vm.handleIncomingMessage(message);
+                        ConversationViewModel vm = getOrCreateConversationViewModel(TargetType.ROOM, room);
+                        vm.handleIncomingMessage(message);
                         vm.markRead();
                     } else {
                         item.setUnread(item.unread() + 1);
@@ -196,6 +203,9 @@ public class WorkspaceViewModel {
                 }
                 if (user.equals(session.currentUser()) && !joined) {
                     rooms.removeIf(r -> r.key().equals(room));
+                    ConversationViewModel removed = conversationCache.remove("ROOM:" + room);
+                    if (removed != null) removed.dispose();
+                    updateTotalUnread();
                     if (isSelected(TargetType.ROOM, room)) {
                         selected.set(rooms.isEmpty() ? null : rooms.get(0));
                     }

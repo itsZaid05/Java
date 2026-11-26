@@ -648,6 +648,31 @@ class ProtocolIntegrationTest {
         assertEquals(50, results.size());
     }
 
+    @Test
+    void onlineDirectTransferAcceptsExactLimitAndEmptyFileAndRejectsOneByteOver() throws Exception {
+        SocketChatClient alice = desktopClient("alice", true);
+        SocketChatClient bob = desktopClient("bob", true);
+        byte[] bytes = new byte[Limits.ATTACHMENT_MAX_BYTES];
+        new Random(53).nextBytes(bytes);
+        Path original = Files.write(tmp.resolve("limit.bin"), bytes);
+        var result = await(alice.sendAttachment(TargetType.PRIVATE, "bob", original));
+        Path downloaded = tmp.resolve("limit-downloaded.bin");
+        await(bob.saveAttachment(result.message().id(), result.size(), downloaded));
+        assertEquals(-1, Files.mismatch(original, downloaded));
+
+        Path empty = Files.createFile(tmp.resolve("empty.txt"));
+        var emptyResult = await(alice.sendAttachment(TargetType.PRIVATE, "bob", empty));
+        Path emptyCopy = tmp.resolve("empty-downloaded.txt");
+        await(bob.saveAttachment(emptyResult.message().id(), emptyResult.size(), emptyCopy));
+        assertEquals(0, Files.size(emptyCopy));
+
+        Files.write(original, new byte[]{1}, java.nio.file.StandardOpenOption.APPEND);
+        assertTransferError(ErrorCode.ATTACHMENT_TOO_LARGE,
+                alice.sendAttachment(TargetType.PRIVATE, "bob", original));
+        var history = await(bob.loadHistory(TargetType.PRIVATE, "alice", 0, 50));
+        assertEquals(List.of("limit.bin", "empty.txt"), history.messages().stream().map(m -> m.text()).toList());
+    }
+
     private SocketChatClient desktopClient(String user, boolean register) throws Exception {
         var client = new SocketChatClient(Runnable::run);
         desktopClients.add(client);

@@ -1,11 +1,11 @@
 package com.chatsphere.client.view.workspace;
 
 import com.chatsphere.client.AppContext;
+import com.chatsphere.client.component.AppButton;
 import com.chatsphere.client.view.workspace.state.ConversationItem;
 import com.chatsphere.client.view.workspace.state.ConversationViewModel;
 import com.chatsphere.client.view.workspace.state.WorkspaceViewModel;
 import javafx.geometry.Pos;
-import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -40,12 +40,12 @@ public class ConversationPane extends VBox {
             Label body = new Label("Choose a room or direct message from the sidebar to start chatting.");
             body.getStyleClass().add("empty-state-body");
 
-            Button createRoomBtn = new Button("Create a room");
+            AppButton createRoomBtn = new AppButton("Create a room").withIcon("fth-plus");
             createRoomBtn.setOnAction(e -> AppContext.get().dialogs().showCreateRoom(name -> {
                 workspaceVm.refreshRooms();
             }));
 
-            Button browseBtn = new Button("Browse rooms");
+            AppButton browseBtn = new AppButton("Browse rooms", AppButton.Variant.SECONDARY);
             browseBtn.setOnAction(e -> AppContext.get().dialogs().showBrowseRooms(name -> {
                 workspaceVm.refreshRooms();
             }));
@@ -60,7 +60,7 @@ public class ConversationPane extends VBox {
             VBox.setVgrow(messageList, Priority.ALWAYS);
 
             TypingStrip typingStrip = new TypingStrip(cvm);
-            Composer composer = new Composer(cvm, selected.isOnline());
+            Composer composer = new Composer(cvm, selected.onlineProperty());
 
             getChildren().addAll(header, messageList, typingStrip, composer);
         }
