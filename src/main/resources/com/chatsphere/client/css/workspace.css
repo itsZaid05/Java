@@ -384,13 +384,17 @@
     -fx-alignment: center;
 }
 
-.composer-input-box:focused-within {
+.composer-input-box:focus-within {
     -fx-border-color: -cs-primary;
 }
 
 .composer-textarea {
     -fx-background-color: transparent;
     -fx-background-insets: 0;
+    -fx-text-fill: -cs-text;
+    -fx-prompt-text-fill: -cs-text-tertiary;
+    -fx-highlight-fill: -cs-primary;
+    -fx-highlight-text-fill: -cs-on-primary;
     -fx-padding: 0;
     -fx-wrap-text: true;
     -fx-pref-height: 38px;
@@ -398,8 +402,12 @@
     -fx-max-height: 140px;
 }
 
+.composer-textarea > .scroll-pane > .viewport,
 .composer-textarea .content {
     -fx-background-color: transparent;
+}
+
+.composer-textarea .content {
     -fx-padding: 0;
 }
 
